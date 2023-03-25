@@ -53,7 +53,7 @@ macro_rules! dbg_print_color {
 macro_rules! dbg_print_indent {
     ($($t:tt)*) => {
         #[cfg(debug_assertions)] {
-            print!("{}", "==|".repeat(DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
+            print!("{}", "   ".repeat(DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
             print!($($t)*);
         }
     };
@@ -475,21 +475,21 @@ impl Token {
 
     pub fn prefix_binding(&self) -> ((), usize) {
         match self.kind {
-            TokenK::OpAdd   => ((), 5),
-            TokenK::OpSub   => ((), 5),
-            _               => ((), 0)
+            TokenK::OpAdd   => ((), 50),
+            TokenK::OpSub   => ((), 50),
+            _               => ((), 00)
         }
     }
     
     pub fn infix_binding(&self) -> (usize, usize) {
         match self.kind {
-            TokenK::OpAdd   => (5, 5),
-            TokenK::OpSub   => (5, 5),
-            TokenK::OpMul   => (6, 6),
-            TokenK::OpDiv   => (6, 6),
-            TokenK::Dot     => (8, 8),
-            TokenK::ColCol  => (9, 9),
-            _               => (0, 0),
+            TokenK::OpAdd   => (50, 51),
+            TokenK::OpSub   => (50, 51),
+            TokenK::OpMul   => (60, 61),
+            TokenK::OpDiv   => (60, 61),
+            TokenK::Dot     => (80, 81),
+            TokenK::ColCol  => (90, 91),
+            _               => (00, 00),
         }
     }
     
@@ -586,6 +586,11 @@ impl Parser {
         }
     }
 
+    fn peek(&self, offset: isize) -> Option<Token> {
+        let offset_cursor = self.cursor.get().checked_add_signed(offset)?;
+        self.tokens.get(offset_cursor).cloned()
+    }
+
     /// Has the cursor moved since the last time this was called?
     fn cursor_moved(&self) -> bool {
         let moved = self.change.get();
@@ -643,36 +648,30 @@ impl Parser {
     /// 
     /// Parsing begins with the token pointed to by self.token()
     fn parse_expression(&self, right_binding: usize) -> Option<Expr> {
-        dbg_print!(push, green, "PARSE EXPRESSION\n");
+        dbg_print!(green, "PARSE EXPRESSION\n");
 
-        let token = self.token();
-        let mut left = self.parse_null_denotation(token)
+        let mut left = self.parse_null_denotation(self.token())
             .expect("expected null associative");
         self.advance();
-        
+
         // as long as the right associative binding power is less than the left associative
         // binding power of the following token, we process successive infix and suffix
         // tokens with the left denotation method. If the token is not left associative,
         // we return the null associative expression already stored in `left`
-        while right_binding < self.token().infix_binding().right() {
-            dbg_print!(blue, "LOOP\n");
-            let token = self.token();
-            self.advance();
-            left = self.parse_left_denotation(left.clone(), token)
-                .unwrap_or(left);
+        while right_binding < self.token().infix_binding().left() {
+            dbg_print!(push, blue, "LOOP\n");
+
+            left = self.parse_left_denotation(left.clone(), self.token()).unwrap_or(left);
         }
 
         dbg_print!(red, "RETURN EXPR\n");
-        dbg_print!("{:#?}\n", &left);
         dbg_print!(pop, "");
         Some(left)
     }
-
+    
     /// Combines paths
     fn parse_path(&self, lhs: Expr, rhs: Expr) -> Option<Expr> {
         dbg_print!(green, "PARSE PATH\n");
-        
-        //let token = self.token();
 
         match (lhs.kind, rhs.kind) {
             (ExprK::Path(lhs), ExprK::Path(rhs)) => {
@@ -687,19 +686,23 @@ impl Parser {
             }
         }
     }
-
-    fn parse_binop(&self, lhs: Expr, rhs: Expr, token: Token) -> Option<Expr> {
+    
+    fn parse_binop(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE BINOP\n");
         
-        //let token = self.token();
-
         let kind = match token.kind {
             TokenK::OpAdd => BinOpK::Add,
             TokenK::OpSub => BinOpK::Sub,
             TokenK::OpMul => BinOpK::Mul,
             TokenK::OpDiv => BinOpK::Div,
-            _ => return None // early return - not a valid binop
+            _ => return panic!("binop") // early return - not a valid binop
         };
+
+        let binding = self.token().infix_binding().left();
+        
+        let lhs = left;
+        self.advance();
+        let rhs = self.parse_expression(binding)?;
 
         let opspan = token.span;
         let exspan = Span::new(lhs.span.bgn, rhs.span.end);
@@ -711,23 +714,20 @@ impl Parser {
     fn parse_infix_op(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE INFIX OP\n");
         
-        //let token = self.token();
-
-        let lhs = left;
-        let rhs = self.parse_expression(self.token().infix_binding().left())?;
-        self.advance();
-
         match token.kind {
             TokenK::OpAdd |
             TokenK::OpSub |
             TokenK::OpMul |
             TokenK::OpDiv => {
-                self.parse_binop(lhs, rhs, token)
+                self.parse_binop(left, token)
             },
             TokenK::ColCol => {
+                let binding = self.token().infix_binding().right();
+                let lhs = left;
+                let rhs = self.parse_expression(binding)?;
                 self.parse_path(lhs, rhs)
             }
-            _ => None // early return - not a valid binop
+            _ => panic!("infix") // early return - not a valid binop
         }
     }
 
@@ -746,7 +746,7 @@ impl Parser {
                 self.parse_infix_op(left, token)
             }
             _ => {
-                None
+                panic!("left den")
             }
         }
     }
