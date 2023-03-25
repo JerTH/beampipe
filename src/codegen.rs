@@ -1,7 +1,67 @@
-use std::{collections::HashMap, str::FromStr, fmt::{Display, write}, cell::{RefCell, Cell}};
+use std::{collections::HashMap, str::FromStr, fmt::{Display, write}, cell::{RefCell, Cell}, borrow::Borrow};
 
 use crate::{ast::{*, Ident}};
 
+static DBG_INDENT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+macro_rules! dbg_print {
+    (push, $($t:tt)*) => {
+        {
+            DBG_INDENT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        dbg_print_color!($($t)*)
+    };
+    
+    (pop, $($t:tt)*) => {
+        {
+            DBG_INDENT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        dbg_print_color!($($t)*)
+    };
+
+    ($($t:tt)*) => {
+        dbg_print_color!($($t)*)
+    };
+}
+
+macro_rules! dbg_print_color {
+    (red, $string:tt) => {
+        #[cfg(debug_assertions)] dbg_print_indent!("\x1b[1;31m{}\x1b[0m", $string)
+    };
+    
+    (green, $string:tt) => {
+        #[cfg(debug_assertions)] dbg_print_indent!("\x1b[1;32m{}\x1b[0m", $string)
+    };
+
+    (yellow, $string:tt) => {
+        #[cfg(debug_assertions)] dbg_print_indent!("\x1b[1;33m{}\x1b[0m", $string)
+    };
+
+    (blue, $string:tt) => {
+        #[cfg(debug_assertions)] dbg_print_indent!("\x1b[1;34m{}\x1b[0m", $string)
+    };
+
+    (magenta, $string:tt) => {
+        #[cfg(debug_assertions)] dbg_print_indent!("\x1b[1;35m{}\x1b[0m", $string)
+    };
+
+    ($($t:tt)*) => {
+        #[cfg(debug_assertions)] print!($($t)*)
+    };
+}
+
+macro_rules! dbg_print_indent {
+    ($($t:tt)*) => {
+        #[cfg(debug_assertions)] {
+            print!("{}", "==|".repeat(DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
+            print!($($t)*);
+        }
+    };
+}
+
+fn foo() {
+    print!("{}", 0)
+}
 #[derive(Debug, Default, Clone)]
 pub enum Value {
     #[default]
@@ -240,7 +300,7 @@ impl Display for IrCode {
 
 impl IrCode {
     fn emit(&self, ir: Ir) {
-        println!("ircode::emit: {}", ir);
+        #[cfg(debug_assertions)] println!("ircode::emit: {}", ir);
         self.code.borrow_mut().push(ir);
     }
 }
@@ -259,8 +319,6 @@ impl Emit {
     }
 
     fn emit_r(&self, expr: &Expr) {
-        println!("emit_r: {:?}", self.code);
-
         let (_, _) = (expr.astid, expr.span);
         let code = &self.code;
         let syms = &self.syms;
@@ -353,7 +411,7 @@ const TOK_U64: &'static str = "u64";
 const TOK_F32: &'static str = "f32";
 const TOK_F64: &'static str = "f64";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum TokenK {
     KeyFn,
     KeyReturn,
@@ -382,13 +440,15 @@ pub enum TokenK {
     Colon,
     Comma,
 
-    // .
+    // generated - sort these
     EqEq,
     KeyIf,
     KeyMut,
     KeyRef,
     KeyWhile,
     KeyLoop,
+    Eof,
+    ColCol,
 }
 
 impl Display for TokenK {
@@ -397,50 +457,381 @@ impl Display for TokenK {
     }
 }
 
-enum SemanticK {
-    None,
-    Lit,
-    BinOp,
-}
-
 #[derive(Debug, Clone)]
 pub struct Token {
     kind: TokenK,
     span: Span,
 }
-
+// ==========================================================================================================
+// =====================================================================================================TOKEN
+// ==========================================================================================================
 impl Token {
-    fn new(span: Span, kind: TokenK) -> Self {
+    pub fn new(span: Span, kind: TokenK) -> Self {
         Self {
             kind,
             span,
         }
     }
 
-    fn semantic_kind(&self) -> SemanticK {
+    pub fn prefix_binding(&self) -> ((), usize) {
         match self.kind {
-            TokenK::OpAdd |
-            TokenK::OpSub |
-            TokenK::OpDiv |
-            TokenK::OpMul => {
-                SemanticK::BinOp
-            },
+            TokenK::OpAdd   => ((), 5),
+            TokenK::OpSub   => ((), 5),
+            _               => ((), 0)
+        }
+    }
+    
+    pub fn infix_binding(&self) -> (usize, usize) {
+        match self.kind {
+            TokenK::OpAdd   => (5, 5),
+            TokenK::OpSub   => (5, 5),
+            TokenK::OpMul   => (6, 6),
+            TokenK::OpDiv   => (6, 6),
+            TokenK::Dot     => (8, 8),
+            TokenK::ColCol  => (9, 9),
+            _               => (0, 0),
+        }
+    }
+    
+    pub fn postfix_binding(&self) -> (usize, ()) {
+        match self.kind {
+            _               => (0, ())
+        }
+    }
+    
+    pub fn null_denotation(&self) -> fn() -> Expr {
+        match self.kind {
             _ => {
-                SemanticK::None
+                || { Expr::empty() }
             }
         }
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ParserErrorK {
+    Unknown,
+    Unexpected,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParserError {
+    errs: Vec<ParserErrorK>
+}
+
+impl ParserError {
+    fn unknown() -> Self {
+        Self {
+            errs: vec![ParserErrorK::Unknown]
+        }
+    }
+
+    fn unexpected() -> ParserError {
+        Self {
+            errs: vec![ParserErrorK::Unexpected]
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Parser {
+    source: String,
+    tokens: Vec<Token>,
+    cursor: Cell<usize>,
+    rewind: RefCell<Vec<usize>>,
+    expect: Vec<Token>,
+    symtab: SymTable,
+    astout: Option<Expr>,
+    errout: Option<ParserError>,
+    change: Cell<bool>,
+}
+
+impl Parser {
+    fn new() -> Self {
+        Self {
+            source: String::new(),
+            cursor: Cell::new(0),
+            rewind: RefCell::new(Vec::new()),
+            tokens: Vec::new(),
+            expect: Vec::new(),
+            symtab: SymTable::new(),
+            astout: None,
+            errout: None,
+            change: Cell::new(true),
+        }
+    }
+
+    fn token(&self) -> Token {
+        let token = self.tokens.get(self.cursor.get()).cloned();
+
+        #[cfg(debug_assertions)]
+        if self.cursor_moved() {
+            if let Some(token) = &token {
+                let source = &self.source[token.span.bgn..=token.span.end];
+                
+                dbg_print!(blue, "CURRENT TOKEN: ");
+                dbg_print!("[{}] {:?}\n", source, token.kind);
+            }
+        }
+        
+        match token {
+            Some(token) => token,
+            None => {
+                let last = self.tokens.len();
+                Token {
+                    kind: TokenK::Eof,
+                    span: Span { bgn: last, end: last },
+                }
+            },
+        }
+    }
+
+    /// Has the cursor moved since the last time this was called?
+    fn cursor_moved(&self) -> bool {
+        let moved = self.change.get();
+        self.change.set(false);
+        moved
+    }
+
+    fn advance(&self) -> Token {
+        self.change.set(true);
+        dbg_print!(red, "ADVANCE\n");
+
+        self.cursor.set(self.cursor.get() + 1);
+        self.token()
+    }
+    
+    fn save_cursor(&self) {
+        dbg_print!(green, "SAVE ");
+        dbg_print!("{} / {}\n", self.cursor.get(), self.tokens.len());
+
+        self.rewind.borrow_mut().push(self.cursor.get());
+    }
+
+    fn rewind_cursor(&self) {
+        if let Some(rewind) = self.rewind.borrow_mut().pop() {
+            dbg_print!(magenta, "REWIND ");
+            dbg_print!("{} <- {}\n", rewind, self.cursor.get());
+            self.change.set(true);
+            self.cursor.set(rewind)
+        } else {
+            dbg_print!(magenta, "REWIND: NO REWIND HISTORY\n");
+        }
+    }
+
+    fn parse(&mut self) -> Result<Expr, ParserError> {
+        self.astout = self.parse_expression(0);
+
+        match self.errout.take() {
+            Some(err) => {
+                Err(err)
+            },
+            None => {
+                match self.astout.take() {
+                    Some(ast) => {
+                        Ok(ast)
+                    },
+                    None => {
+                        Err(ParserError::unknown())
+                    },
+                }
+            },
+        }
+    }
+    
+    /// Parses an expression using Pratt's method
+    /// 
+    /// Parsing begins with the token pointed to by self.token()
+    fn parse_expression(&self, right_binding: usize) -> Option<Expr> {
+        dbg_print!(push, green, "PARSE EXPRESSION\n");
+
+        let token = self.token();
+        let mut left = self.parse_null_denotation(token)
+            .expect("expected null associative");
+        self.advance();
+        
+        // as long as the right associative binding power is less than the left associative
+        // binding power of the following token, we process successive infix and suffix
+        // tokens with the left denotation method. If the token is not left associative,
+        // we return the null associative expression already stored in `left`
+        while right_binding < self.token().infix_binding().right() {
+            dbg_print!(blue, "LOOP\n");
+            let token = self.token();
+            self.advance();
+            left = self.parse_left_denotation(left.clone(), token)
+                .unwrap_or(left);
+        }
+
+        dbg_print!(red, "RETURN EXPR\n");
+        dbg_print!("{:#?}\n", &left);
+        dbg_print!(pop, "");
+        Some(left)
+    }
+
+    /// Combines paths
+    fn parse_path(&self, lhs: Expr, rhs: Expr) -> Option<Expr> {
+        dbg_print!(green, "PARSE PATH\n");
+        
+        //let token = self.token();
+
+        match (lhs.kind, rhs.kind) {
+            (ExprK::Path(lhs), ExprK::Path(rhs)) => {
+                let list = [&lhs.list[..], &rhs.list[..]].concat();
+                let span = Span::new(lhs.span.bgn, rhs.span.end);
+                let path = Path::new(list, span);
+                let exprk = ExprK::Path(Ptr::new(path));
+                Some(Expr::new(span, exprk))
+            },
+            _ => {
+                None
+            }
+        }
+    }
+
+    fn parse_binop(&self, lhs: Expr, rhs: Expr, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE BINOP\n");
+        
+        //let token = self.token();
+
+        let kind = match token.kind {
+            TokenK::OpAdd => BinOpK::Add,
+            TokenK::OpSub => BinOpK::Sub,
+            TokenK::OpMul => BinOpK::Mul,
+            TokenK::OpDiv => BinOpK::Div,
+            _ => return None // early return - not a valid binop
+        };
+
+        let opspan = token.span;
+        let exspan = Span::new(lhs.span.bgn, rhs.span.end);
+        let binop = BinOp { span: opspan, kind };
+        let exprk = ExprK::BinOp(binop, Ptr::new(lhs), Ptr::new(rhs));
+        Some(Expr::new(exspan, exprk))
+    }
+    
+    fn parse_infix_op(&self, left: Expr, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE INFIX OP\n");
+        
+        //let token = self.token();
+
+        let lhs = left;
+        let rhs = self.parse_expression(self.token().infix_binding().left())?;
+        self.advance();
+
+        match token.kind {
+            TokenK::OpAdd |
+            TokenK::OpSub |
+            TokenK::OpMul |
+            TokenK::OpDiv => {
+                self.parse_binop(lhs, rhs, token)
+            },
+            TokenK::ColCol => {
+                self.parse_path(lhs, rhs)
+            }
+            _ => None // early return - not a valid binop
+        }
+    }
+
+    fn parse_left_denotation(&self, left: Expr, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE LEFT DENOTATION\n");
+        
+        //let token = self.token();
+        let kind = token.kind;
+
+        match kind {
+            TokenK::ColCol |
+            TokenK::OpAdd  |
+            TokenK::OpSub  |
+            TokenK::OpMul  |
+            TokenK::OpDiv => {
+                self.parse_infix_op(left, token)
+            }
+            _ => {
+                None
+            }
+        }
+    }
+
+    fn parse_literal(&self, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE LITERAL ");
+        
+        //let token = self.token();
+        let kind = token.kind;
+        let span = token.span;
+        
+        let kind = match kind {
+            TokenK::LitInt => LitK::Int,
+            TokenK::LitFloat => LitK::Float,
+            _ => {
+                return None // early return - not a literal
+            }
+        };
+
+        let symbol = self.make_symbol(&token);
+        let literal = Lit { symbol, kind };
+        
+        dbg_print!("{:?}\n", &literal);
+        
+        let exprk = ExprK::Lit(Ptr::new(literal));
+        Some(Expr::new(span, exprk))
+    }
+    
+    /// Parses an ident as a Path, paths can then be combined
+    fn parse_ident(&self, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE IDENT\n");
+        
+        //let token = self.token();
+
+        let span = token.span;
+        let name = self.make_symbol(&token);
+        let ident = Ident { name, span };
+        let path = Path::new(vec![ident], span);
+        let exprk = ExprK::Path(Ptr::new(path));
+        Some(Expr::new(span, exprk))
+    }
+
+    fn parse_null_denotation(&self, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE NULL DENOTATION ");
+        dbg_print!("{:?}\n", token);
+
+        //let token = self.token();        
+        let kind = token.kind;
+
+        match kind {
+            TokenK::LitInt |
+            TokenK::LitFloat => {
+                self.parse_literal(token)
+            },
+            TokenK::LitIdent => {
+                self.parse_ident(token)
+            }
+            _ => {
+                None
+            }
+        }
+    }
+    
+    fn make_symbol(&self, token: &Token) -> Sym {
+        let slice = &self.source[token.span.bgn..=token.span.end];
+        self.symtab.make(slice)
+    }
+
+    fn source_fragment(&self, span: Span) -> String {
+        String::from(&self.source[span.bgn..=span.end])
+    }
+}
+
+
 #[derive(Debug, Default)]
 pub struct Parse {
-    source: String, // store a copy for debug purposes
+    source: String,
     tokens: Vec<Token>,
     astout: Option<Expr>,
 }
 
 impl Display for Parse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        return Ok(());
+
         write!(f, "Parse Results:\n\n")?;
         write!(f, "Source\n======\n{}\n======\n\n", self.source)?;
         write!(f, "Tokens\n======\n")?;
@@ -455,7 +846,7 @@ impl Display for Parse {
 }
 
 impl Parse {
-    pub fn parse<S: Into<String>>(source: S) -> Expr {
+    pub fn parse<S: Into<String>>(source: S) -> Result<Expr, ParserError> {
         let source: String = source.into();
         let tokens: Vec<Token> = Vec::new();
         let astout: Option<Expr> = None;
@@ -468,24 +859,10 @@ impl Parse {
         
         parse.peel_tokens();
 
-        parse.build_tree();
-        
-        dbg!(&parse.astout);
-
-        match parse.astout {
-            Some(ast) => {
-                let out = Emit::emit(&ast);
-                println!("\n\n{}\n\n", out);
-            },
-            None => {
-                panic!("failed to build ast")
-            },
-        }
-
-        todo!()
+        parse.build_tree()
     }
-    
-    pub fn build_tree(&mut self) {
+
+    pub fn build_tree(&mut self) -> Result<Expr, ParserError> {
         let mut parser = Parser {
             source: self.source.clone(),
             tokens: self.tokens.clone(),
@@ -495,12 +872,10 @@ impl Parse {
             symtab: SymTable::new(),
             astout: None,
             errout: None,
+            change: Cell::new(true),
         };
 
-        match parser.parse() {
-            Ok(ast) => self.astout = Some(ast),
-            Err(err) => panic!("parser err: {err:?}"),
-        }
+        parser.parse()
     }
 
     fn peel_tokens(&mut self) {
@@ -515,7 +890,7 @@ impl Parse {
                 self.match_key(curs, &mut buff);
             }
             
-            if !char.is_numeric() {
+            if !char.is_numeric() & (*char != '.' ) {
                 self.match_numeric(curs, &mut buff);
             }
 
@@ -530,7 +905,9 @@ impl Parse {
 
         // Try to match once more after the loop
         if !self.match_key(chars.len(), &mut buff) {
-            self.match_ident(chars.len(), &mut buff);
+            if !self.match_ident(chars.len(), &mut buff) {
+                self.match_numeric(chars.len(), &mut buff);
+            }
         }
 
         println!("{buff:?}");
@@ -552,9 +929,11 @@ impl Parse {
             token = Some(Token::new(tspan, TokenK::LitInt))
         };
 
-        if let Ok(_) = string_repr.parse::<f64>() {
-            token = Some(Token::new(tspan, TokenK::LitFloat))  
-        };
+        if token.is_none() {
+            if let Ok(_) = string_repr.parse::<f64>() {
+                token = Some(Token::new(tspan, TokenK::LitFloat))  
+            };
+        }
 
         if let Some(token) = token {
             self.tokens.push(token);
@@ -681,275 +1060,9 @@ impl CharImplExt for char {
     }
 }
 
-#[derive(Debug, Clone)]
-enum ParserErrorK {
-    Unknown,
-    Unexpected,
-}
-
-#[derive(Debug, Clone)]
-struct ParserError {
-    errs: Vec<ParserErrorK>
-}
-
-impl ParserError {
-    fn unknown() -> Self {
-        Self {
-            errs: vec![ParserErrorK::Unknown]
-        }
-    }
-
-    fn unexpected() -> ParserError {
-        Self {
-            errs: vec![ParserErrorK::Unexpected]
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Parser {
-    source: String,
-    tokens: Vec<Token>,
-    cursor: Cell<usize>,
-    rewind: RefCell<Vec<usize>>,
-    expect: Vec<Token>,
-    symtab: SymTable,
-    astout: Option<Expr>,
-    errout: Option<ParserError>,
-}
-
-impl Parser {
-    fn new() -> Self {
-        Self {
-            source: String::new(),
-            cursor: Cell::new(0),
-            rewind: RefCell::new(Vec::new()),
-            tokens: Vec::new(),
-            expect: Vec::new(),
-            symtab: SymTable::new(),
-            astout: None,
-            errout: None,
-        }
-    }
-
-    fn token(&self) -> Option<Token> {
-        self.tokens.get(self.cursor.get()).cloned()
-    }
-
-    fn advance(&self) -> Option<Token> {
-        self.cursor.set(self.cursor.get() + 1);
-        self.token()
-    }
-
-    fn save_cursor(&self) {
-        self.rewind.borrow_mut().push(self.cursor.get());
-    }
-
-    fn rewind_cursor(&self) {
-        if let Some(rewind) = self.rewind.borrow_mut().pop() {
-            self.cursor.set(rewind)
-        }
-    }
-
-    fn parse(&mut self) -> Result<Expr, ParserError> {
-        println!("parse");
-
-        self.astout = self.parse_expr(0);
-        
-        match self.errout.take() {
-            Some(err) => {
-                Err(err)
-            },
-            None => {
-                match self.astout.take() {
-                    Some(ast) => {
-                        Ok(ast)
-                    },
-                    None => {
-                        Err(ParserError::unknown())
-                    },
-                }
-            },
-        }
-    }
-
-    fn parse_expr(&mut self, precedence: usize) -> Option<Expr> {
-        println!("parse_expr");
-
-        self.parse_binop(precedence)
-    }
-
-    fn parse_binop(&mut self, precedence: usize) -> Option<Expr> {
-        println!("parse_binop");
-
-        self.save_cursor();
-
-        let mut span: Span = Span::none();
-        let mut lhso: Option<Expr> = None;
-
-        if let Some(lhst) = self.token() {
-            println!("\ttok{:?}", &lhst);
-
-            let lhs = match lhst.kind {
-                TokenK::LitInt => Some(Expr::new(lhst.span, self.make_exprk(&lhst))),
-                TokenK::LitFloat => Some(Expr::new(lhst.span, self.make_exprk(&lhst))),
-                TokenK::LitIdent => Some(Expr::new(lhst.span, self.make_exprk(&lhst))),
-                _ => None,
-            };
-            span = lhst.span;
-            lhso = lhs;
-        }
-        
-        if let Some(lhs) = lhso.clone() {
-            println!("\texpr{:?}", &lhs);
-
-            loop {
-                if let Some((op, binding)) = self.parse_infix_op() {
-
-                    if binding.lhs() < precedence {
-                        break;
-                    }
-
-                    if let Some(rhst) = self.advance() {
-                        if let Some(rhs) = self.parse_expr(binding.rhs()) {
-                            if let ExprK::BinOp(op, _, _) = op.kind {
-                                span.end = rhst.span.end;
-                                lhso = Some(Expr::new(span, ExprK::BinOp(op.clone(), Ptr::new(lhs.clone()), Ptr::new(rhs))));
-                            };
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
-
-        if lhso.is_none() {
-            self.rewind_cursor()
-        }
-
-        lhso
-    }
-
-    fn parse_infix_op(&mut self) -> Option<(Expr, (usize, usize))> {
-        println!("parse_infix_op");
-
-        self.save_cursor();
-
-        let mut op = None;
-        if let Some(opt) = self.advance() {
-            op = match opt.kind {
-                TokenK::OpAdd => {
-                    Some(Expr::new(opt.span, ExprK::binop(opt.span, BinOpK::Add)))
-                },
-                TokenK::OpSub => {
-                    Some(Expr::new(opt.span, ExprK::binop(opt.span, BinOpK::Sub)))
-                },
-                TokenK::OpMul => {
-                    Some(Expr::new(opt.span, ExprK::binop(opt.span, BinOpK::Mul)))
-                },
-                TokenK::OpDiv => {
-                    Some(Expr::new(opt.span, ExprK::binop(opt.span, BinOpK::Div)))
-                },
-                _ => None
-            };
-        }
-
-        match op {
-            Some(op) => {
-                Some((op, self.infix_binding()))
-            },
-            None => {
-                self.rewind_cursor();
-                return None
-            },
-        }
-    }
-
-    fn make_exprk(&self, token: &Token) -> ExprK {
-        match token.kind {
-            TokenK::LitInt => ExprK::Lit(Ptr::new(Lit { symbol: self.make_symbol(&token), kind: LitK::Int })),
-            TokenK::LitFloat => ExprK::Lit(Ptr::new(Lit { symbol: self.make_symbol(&token), kind: LitK::Float })),
-            TokenK::LitIdent => {
-                ExprK::Path(Ptr::new(Path {
-                    astid: AstId::new(),
-                    list: vec![Ident {
-                        name: self.symtab.make(self.source_fragment(token.span)),
-                        span: token.span,
-                    }],
-                    span: token.span,
-                }))
-            },
-            TokenK::OpMul => {
-                ExprK::BinOp(
-                    BinOp { span: token.span, kind: BinOpK::Mul },
-                    Ptr::new(Expr::new(token.span, ExprK::Empty)),
-                    Ptr::new(Expr::new(token.span, ExprK::Empty))
-                )
-            },
-            TokenK::OpDiv => {
-                ExprK::BinOp(
-                    BinOp { span: token.span, kind: BinOpK::Mul },
-                    Ptr::new(Expr::new(token.span, ExprK::Empty)),
-                    Ptr::new(Expr::new(token.span, ExprK::Empty))
-                )
-            },
-            _ => ExprK::Empty
-        }
-    }
-
-    fn make_symbol(&self, token: &Token) -> Sym {
-        let slice = &self.source[token.span.bgn..=token.span.end];
-        self.symtab.make(slice)
-    }
-    
-    fn prefix_binding(&self) -> ((), usize) {
-        match self.token() {
-            Some(token) => {
-                match token.kind {
-                    TokenK::OpAdd =>    ((), 5),
-                    TokenK::OpSub =>    ((), 5),
-                    _ =>                ((), 1)
-                }
-            },
-            None => {
-                ((), 1)
-            }
-        }
-    }
-
-    fn infix_binding(&self) -> (usize, usize) {
-        match self.token() {
-            Some(token) => {
-                match token.kind {
-                    TokenK::OpAdd =>    (1, 2),
-                    TokenK::OpSub =>    (1, 2),
-                    TokenK::OpMul =>    (3, 4),
-                    TokenK::OpDiv =>    (3, 4),
-                    TokenK::Dot =>      (6, 5),
-                    _ =>                (0, 0),
-                }
-            },
-            None => {
-                (0, 0)
-            },
-        }
-    }
-    
-    fn postfix_binding(&self) -> (usize, ()) {
-        match self.token() {
-            _ =>                (1, ())
-        }
-    }
-
-    fn source_fragment(&self, span: Span) -> String {
-        String::from(&self.source[span.bgn..=span.end])
-    }
-}
-
 trait BindingExt<L, R> {
-    fn lhs(&self) -> L;
-    fn rhs(&self) -> R;
+    fn left(&self) -> L;
+    fn right(&self) -> R;
 }
 
 impl<L, R> BindingExt<L, R> for (L, R)
@@ -957,11 +1070,11 @@ where
     L: Clone,
     R: Clone
 {
-    fn lhs(&self) -> L {
+    fn left(&self) -> L {
         self.0.clone()
     }
 
-    fn rhs(&self) -> R {
+    fn right(&self) -> R {
         self.1.clone()
     }
 }
@@ -972,8 +1085,14 @@ mod test {
 
     #[test]
     fn test_parser() {
-        let source = include_str!("code.rs");
-        let result = Parse::parse(source);
+        let source = include_str!("example/expr.rs");
+        let expr = Parse::parse(source).expect("expected ast");
+        let code = Emit::emit(&expr);
+        let result = Eval::eval(&expr);
+
+        println!("{}", source);
+        println!("{}", code);
+        println!("{}", result);
     }
 }
 
@@ -997,9 +1116,3 @@ fn err_malformed_token(buffer: &Vec<char>) -> ! {
     let string = String::from_iter(buffer.into_iter());
     panic!("malformed token: {string}");
 }
-
-//fn foo(a: i32, b: f32) -> usize {
-//    if a == 0 {
-//        return b * 2.0 + baz(a);
-//    }
-//}

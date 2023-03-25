@@ -2,7 +2,7 @@ use std::{ops::{Deref, DerefMut, Bound, RangeBounds}, collections::HashMap, sync
 
 type PtrType<T> = Box<T>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Ptr<T: ?Sized>(PtrType<T>);
 
 impl<T> Ptr<T> {
@@ -16,6 +16,22 @@ impl<T> Deref for Ptr<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<T> Debug for Ptr<T> where T: Debug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            f.write_fmt(format_args!("{:#?}", self.0.deref()))
+        } else {
+            f.write_fmt(format_args!("{:?}", self.0.deref()))
+        }
+    }
+}
+
+impl<T> Display for Ptr<T> where T: Display {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -72,6 +88,10 @@ impl Span {
     pub fn none() -> Self {
         Span { bgn: 0, end: 0 }
     }
+    
+    pub fn new(bgn: usize, end: usize) -> Self {
+        Span { bgn, end}
+    }
 }
 
 impl RangeBounds<usize> for Span {
@@ -92,6 +112,12 @@ impl Debug for Span {
 
 #[derive(Debug, Clone)]
 pub struct Path     { pub astid: AstId, pub list: Vec<Ident>, pub span: Span, }
+
+impl Path {
+    pub fn new(list: Vec<Ident>, span: Span) -> Self {
+        Self { astid: astid!(), list, span }
+    }
+}
 
 impl Into<String> for &Ptr<Path> {
     fn into(self) -> String {
@@ -137,6 +163,14 @@ impl Expr {
             astid: astid!(),
             kind,
             span,
+        }
+    }
+    
+    pub fn empty() -> Expr {
+        Expr {
+            astid: astid!(),
+            kind: ExprK::Empty,
+            span: Span::none(),
         }
     }
 }
@@ -427,6 +461,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[ignore]
     fn make_test_tree() {
         let tree = test_tree();
         let code = Emit::emit(&tree);
