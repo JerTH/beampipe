@@ -136,6 +136,12 @@ pub struct Local    { pub astid: AstId, pub ident: Ident, pub kind: LocalK, pub 
 #[derive(Debug, Clone)]
 pub struct Blk      { pub astid: AstId, pub list: Vec<Expr>, pub span: Span, }
 
+impl Blk {
+    pub fn new(list: Vec<Expr>, span: Span) -> Self {
+        Blk { astid: astid!(), list, span }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Item     { pub astid: AstId, pub ident: Ident, }
 
@@ -158,10 +164,10 @@ pub struct BinOp    { pub span: Span, pub kind: BinOpK, }
 pub struct Expr     { pub astid: AstId, pub kind: ExprK, pub span: Span, }
 
 impl Expr {
-    pub fn new(span: Span, kind: ExprK) -> Self {
+    pub fn new(span: Span, exprk: ExprK) -> Self {
         Expr {
             astid: astid!(),
-            kind,
+            kind: exprk,
             span,
         }
     }
@@ -189,11 +195,12 @@ pub enum ItemK      {  }
 pub enum LitK       { Bool, Int, Float, }
 
 #[derive(Debug, Clone)]
-pub enum BinOpK     { Add, Sub, Div, Mul, }
+pub enum BinOpK     { Add, Sub, Div, Mul }
 
 #[derive(Debug, Clone)]
 pub enum ExprK {
     Empty,
+    Semi(Ptr<Expr>), // semicolon terminated expression
     Local(Ptr<Local>),
     Item(Ptr<Item>),
     Lit(Ptr<Lit>),

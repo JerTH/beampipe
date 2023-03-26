@@ -53,7 +53,7 @@ macro_rules! dbg_print_color {
 macro_rules! dbg_print_indent {
     ($($t:tt)*) => {
         #[cfg(debug_assertions)] {
-            print!("{}", "   ".repeat(DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
+            print!("{}", "  ".repeat(DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
             print!($($t)*);
         }
     };
@@ -119,8 +119,14 @@ impl Eval {
                 return Value::None
             },
 
+            ExprK::Semi(expr) => {
+                self.eval_r(expr)
+            },
+
             ExprK::Local(_) => todo!(),
-            ExprK::Item(_) => todo!(),
+            ExprK::Item(item) => {
+                todo!()
+            },
 
             ExprK::Lit(lit) => {
                 let value = &lit.symbol.parse::<Value>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "integer"));
@@ -228,7 +234,11 @@ impl Eval {
                     name: self.symt.make(full_name),
                     span: Span::none(),
                 };
-                return Value::Ident(ident)
+                if let Some(value) = self.vars.get(&ident) {
+                    return value.clone()
+                } else {
+                    return Value::Ident(ident)
+                }
             },
         }
     }
@@ -328,6 +338,10 @@ impl Emit {
                 code.emit(Ir::Nop)
             },
 
+            ExprK::Semi(expr) => {
+                self.emit_r(expr)
+            },
+
             ExprK::Local(_) => todo!(),
             ExprK::Item(_) => todo!(),
             ExprK::Lit(lit) => {
@@ -398,6 +412,7 @@ const TOK_R_BRACK: &'static str = "]";
 const TOK_ARROW: &'static str = "->";
 const TOK_PLUS: &'static str = "+";
 const TOK_MINUS: &'static str = "-";
+const TOK_EQ: &'static str = "=";
 const TOK_STAR: &'static str = "*";
 const TOK_SLASH: &'static str = "/";
 const TOK_COLON: &'static str = ":";
@@ -411,7 +426,7 @@ const TOK_U64: &'static str = "u64";
 const TOK_F32: &'static str = "f32";
 const TOK_F64: &'static str = "f64";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TokenK {
     KeyFn,
     KeyReturn,
@@ -449,6 +464,8 @@ pub enum TokenK {
     KeyLoop,
     Eof,
     ColCol,
+    OpBang,
+    OpEq,
 }
 
 impl Display for TokenK {
@@ -487,6 +504,7 @@ impl Token {
             TokenK::OpSub   => (50, 51),
             TokenK::OpMul   => (60, 61),
             TokenK::OpDiv   => (60, 61),
+            TokenK::OpEq    => (90, 91),
             TokenK::Dot     => (80, 81),
             TokenK::ColCol  => (90, 91),
             _               => (00, 00),
@@ -539,7 +557,6 @@ pub struct Parser {
     tokens: Vec<Token>,
     cursor: Cell<usize>,
     rewind: RefCell<Vec<usize>>,
-    expect: Vec<Token>,
     symtab: SymTable,
     astout: Option<Expr>,
     errout: Option<ParserError>,
@@ -553,7 +570,6 @@ impl Parser {
             cursor: Cell::new(0),
             rewind: RefCell::new(Vec::new()),
             tokens: Vec::new(),
-            expect: Vec::new(),
             symtab: SymTable::new(),
             astout: None,
             errout: None,
@@ -605,7 +621,12 @@ impl Parser {
         self.cursor.set(self.cursor.get() + 1);
         self.token()
     }
-    
+
+    fn expect(&self, tokenk: TokenK) -> Token {
+        assert_eq!(self.token().kind, tokenk);
+        self.advance()
+    }
+
     fn save_cursor(&self) {
         dbg_print!(green, "SAVE ");
         dbg_print!("{} / {}\n", self.cursor.get(), self.tokens.len());
@@ -626,7 +647,7 @@ impl Parser {
 
     fn parse(&mut self) -> Result<Expr, ParserError> {
         self.astout = self.parse_expression(0);
-
+        
         match self.errout.take() {
             Some(err) => {
                 Err(err)
@@ -648,19 +669,18 @@ impl Parser {
     /// 
     /// Parsing begins with the token pointed to by self.token()
     fn parse_expression(&self, right_binding: usize) -> Option<Expr> {
-        dbg_print!(green, "PARSE EXPRESSION\n");
+        dbg_print!(green, "PARSE EXPRESSION "); 
+        dbg_print!("{:?}\n", self.token()); 
 
-        let mut left = self.parse_null_denotation(self.token())
-            .expect("expected null associative");
+        let mut left = self.parse_null_denotation(self.token())?;
         self.advance();
 
         // as long as the right associative binding power is less than the left associative
         // binding power of the following token, we process successive infix and suffix
         // tokens with the left denotation method. If the token is not left associative,
         // we return the null associative expression already stored in `left`
+        dbg_print!(push, "");
         while right_binding < self.token().infix_binding().left() {
-            dbg_print!(push, blue, "LOOP\n");
-
             left = self.parse_left_denotation(left.clone(), self.token()).unwrap_or(left);
         }
 
@@ -668,7 +688,7 @@ impl Parser {
         dbg_print!(pop, "");
         Some(left)
     }
-    
+
     /// Combines paths
     fn parse_path(&self, lhs: Expr, rhs: Expr) -> Option<Expr> {
         dbg_print!(green, "PARSE PATH\n");
@@ -699,7 +719,7 @@ impl Parser {
         };
 
         let binding = self.token().infix_binding().left();
-        
+
         let lhs = left;
         self.advance();
         let rhs = self.parse_expression(binding)?;
@@ -731,6 +751,17 @@ impl Parser {
         }
     }
 
+    fn parse_reverse_infix_op(&self, left: Expr, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE REVERSE INFIX OP\n");
+
+        match token.kind {
+            TokenK::OpEq => {
+                self.parse_assignment(left, token)
+            },
+            _ => panic!("reverse infix")
+        }
+    }
+
     fn parse_left_denotation(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE LEFT DENOTATION\n");
         
@@ -744,7 +775,15 @@ impl Parser {
             TokenK::OpMul  |
             TokenK::OpDiv => {
                 self.parse_infix_op(left, token)
-            }
+            },
+            TokenK::OpEq => {
+                self.parse_reverse_infix_op(left, token)
+            },
+            TokenK::Semi => {
+                let span = left.span;
+                let exprk = ExprK::Semi(Ptr::new(left));
+                Some(Expr::new(span, exprk))
+            },
             _ => {
                 panic!("left den")
             }
@@ -754,7 +793,6 @@ impl Parser {
     fn parse_literal(&self, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE LITERAL ");
         
-        //let token = self.token();
         let kind = token.kind;
         let span = token.span;
         
@@ -778,8 +816,6 @@ impl Parser {
     /// Parses an ident as a Path, paths can then be combined
     fn parse_ident(&self, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE IDENT\n");
-        
-        //let token = self.token();
 
         let span = token.span;
         let name = self.make_symbol(&token);
@@ -789,27 +825,88 @@ impl Parser {
         Some(Expr::new(span, exprk))
     }
 
+    fn parse_prefix_op(&self, token: Token) -> Option<Expr> {
+        dbg_print!(green, "PARSE PREFIX OP\n");
+        todo!();
+    }
+
+    fn parse_assignment(&self, left: Expr, token: Token) -> Option<Expr> {
+        debug_assert_eq!(token.kind, TokenK::OpEq);
+
+        let binding = self.token().infix_binding().left();
+        
+        let lhs = left;
+        self.advance();
+        let rhs = self.parse_expression(binding)?;
+        
+        match lhs.kind {
+            ExprK::Path(path) => {
+                let exspan = Span::new(lhs.span.bgn, rhs.span.end);
+                let path = Expr::new(lhs.span, ExprK::Path(path));
+                let exprk = ExprK::Assign(Ptr::new(path), Ptr::new(rhs));
+                Some(Expr::new(exspan, exprk))
+            },
+            _ => panic!("invalid lvalue")
+        }
+    }
+
+    fn parse_block(&self, token: Token) -> Option<Expr> {
+        debug_assert_eq!(token.kind, TokenK::LBrace);
+        self.advance();
+
+        let mut expressions = Vec::new();
+
+        while let Some(expr) = self.parse_expression(0) {
+            expressions.push(expr)
+        }
+
+        self.expect(TokenK::RBrace);
+
+        let span = Span::new(
+            expressions.first().unwrap().span.bgn,
+            expressions.first().unwrap().span.end
+        );
+
+        let blk = Blk::new(expressions, span);
+        let exprk = ExprK::Blk(Ptr::new(blk));
+        Some(Expr::new(span, exprk))
+    }
+
     fn parse_null_denotation(&self, token: Token) -> Option<Expr> {
+        std::io::stdin().read_line(&mut String::new());
+
         dbg_print!(green, "PARSE NULL DENOTATION ");
         dbg_print!("{:?}\n", token);
 
-        //let token = self.token();        
         let kind = token.kind;
 
         match kind {
-            TokenK::LitInt |
+            TokenK::LitInt   |
             TokenK::LitFloat => {
                 self.parse_literal(token)
             },
             TokenK::LitIdent => {
                 self.parse_ident(token)
             }
+            TokenK::OpBang   |
+            TokenK::OpSub    => {
+                self.parse_prefix_op(token)
+            },
+            TokenK::LBrace   => {
+                self.parse_block(token)
+            },
+            TokenK::Semi => {
+                let span = Span::none();
+                let empty = Expr::empty();
+                let exprk = ExprK::Semi(Ptr::new(empty));
+                Some(Expr::new(span, exprk))
+            },
             _ => {
                 None
             }
         }
     }
-    
+
     fn make_symbol(&self, token: &Token) -> Sym {
         let slice = &self.source[token.span.bgn..=token.span.end];
         self.symtab.make(slice)
@@ -868,7 +965,6 @@ impl Parse {
             tokens: self.tokens.clone(),
             cursor: Cell::new(0),
             rewind: RefCell::new(Vec::new()),
-            expect: Vec::new(),
             symtab: SymTable::new(),
             astout: None,
             errout: None,
@@ -984,7 +1080,7 @@ impl Parse {
                 TOK_U64     => Some(Token::new(tspan, TokenK::Ty)),
                 TOK_F32     => Some(Token::new(tspan, TokenK::Ty)),
                 TOK_F64     => Some(Token::new(tspan, TokenK::Ty)),
-    
+                
                 TOK_COLON   => Some(Token::new(tspan, TokenK::Colon)),
                 TOK_SEMI    => Some(Token::new(tspan, TokenK::Semi)),
                 TOK_COMMA   => Some(Token::new(tspan, TokenK::Comma)),
@@ -1000,6 +1096,7 @@ impl Parse {
                 TOK_MINUS   => Some(Token::new(tspan, TokenK::OpSub)),
                 TOK_STAR    => Some(Token::new(tspan, TokenK::OpMul)),
                 TOK_SLASH   => Some(Token::new(tspan, TokenK::OpDiv)),
+                TOK_EQ      => Some(Token::new(tspan, TokenK::OpEq)),
     
                 _ => None
             };
