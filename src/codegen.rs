@@ -1,3 +1,4 @@
+use core::panic;
 use std::{collections::HashMap, str::FromStr, fmt::{Display, write}, cell::{RefCell, Cell}, borrow::Borrow};
 
 use crate::{ast::{*, Ident}};
@@ -310,7 +311,6 @@ impl Display for IrCode {
 
 impl IrCode {
     fn emit(&self, ir: Ir) {
-        #[cfg(debug_assertions)] println!("ircode::emit: {}", ir);
         self.code.borrow_mut().push(ir);
     }
 }
@@ -500,13 +500,13 @@ impl Token {
     
     pub fn infix_binding(&self) -> (usize, usize) {
         match self.kind {
-            TokenK::OpAdd   => (50, 51),
-            TokenK::OpSub   => (50, 51),
-            TokenK::OpMul   => (60, 61),
-            TokenK::OpDiv   => (60, 61),
-            TokenK::OpEq    => (90, 91),
-            TokenK::Dot     => (80, 81),
-            TokenK::ColCol  => (90, 91),
+            TokenK::OpAdd   => (50, 50),
+            TokenK::OpSub   => (50, 50),
+            TokenK::OpMul   => (60, 60),
+            TokenK::OpDiv   => (60, 60),
+            TokenK::OpEq    => (90, 90),
+            TokenK::Dot     => (80, 80),
+            TokenK::ColCol  => (90, 90),
             _               => (00, 00),
         }
     }
@@ -622,6 +622,7 @@ impl Parser {
         self.token()
     }
 
+    /// Asserts that the kind of the current token is equal to `tokenk`
     fn expect(&self, tokenk: TokenK) -> Token {
         assert_eq!(self.token().kind, tokenk);
         self.advance()
@@ -680,12 +681,13 @@ impl Parser {
         // tokens with the left denotation method. If the token is not left associative,
         // we return the null associative expression already stored in `left`
         dbg_print!(push, "");
+        dbg_print!("while {} < {}\n", right_binding, self.token().infix_binding().left());
         while right_binding < self.token().infix_binding().left() {
+            dbg_print!("loop if {} < {}\n", right_binding, self.token().infix_binding().left());
             left = self.parse_left_denotation(left.clone(), self.token()).unwrap_or(left);
         }
-
-        dbg_print!(red, "RETURN EXPR\n");
         dbg_print!(pop, "");
+        dbg_print!(red, "RETURN EXPR\n");
         Some(left)
     }
 
@@ -715,7 +717,9 @@ impl Parser {
             TokenK::OpSub => BinOpK::Sub,
             TokenK::OpMul => BinOpK::Mul,
             TokenK::OpDiv => BinOpK::Div,
-            _ => return panic!("binop") // early return - not a valid binop
+            _ => {
+                panic!("binop") // not a valid binop
+            }
         };
 
         let binding = self.token().infix_binding().left();
@@ -747,18 +751,43 @@ impl Parser {
                 let rhs = self.parse_expression(binding)?;
                 self.parse_path(lhs, rhs)
             }
-            _ => panic!("infix") // early return - not a valid binop
+            _ => {
+                panic!("infix") // not a valid infix op
+            }
+        }
+    }
+
+    fn parse_assignment(&self, lhs: Expr, rhs: Expr) -> Option<Expr> {
+        dbg_print!(green, "PARSE ASSIGNMENT\n");
+        
+        match lhs.kind {
+            ExprK::Path(path) => {
+                let exspan = Span::new(lhs.span.bgn, rhs.span.end);
+                let path = Expr::new(lhs.span, ExprK::Path(path));
+                let exprk = ExprK::Assign(Ptr::new(path), Ptr::new(rhs));
+                Some(Expr::new(exspan, exprk))
+            },
+            _ => {
+                panic!("invalid lvalue") // assignment lvalue
+            }
         }
     }
 
     fn parse_reverse_infix_op(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE REVERSE INFIX OP\n");
 
+        let lhs = left;
+        self.advance();
+        let binding = self.token().infix_binding().right().saturating_sub(1);
+        let rhs = self.parse_expression(binding)?;
+
         match token.kind {
             TokenK::OpEq => {
-                self.parse_assignment(left, token)
+                self.parse_assignment(lhs, rhs)
             },
-            _ => panic!("reverse infix")
+            _ => {
+                panic!("reverse infix")
+            }
         }
     }
 
@@ -800,7 +829,7 @@ impl Parser {
             TokenK::LitInt => LitK::Int,
             TokenK::LitFloat => LitK::Float,
             _ => {
-                return None // early return - not a literal
+                panic!("literal") // early return - not a literal
             }
         };
 
@@ -830,26 +859,6 @@ impl Parser {
         todo!();
     }
 
-    fn parse_assignment(&self, left: Expr, token: Token) -> Option<Expr> {
-        debug_assert_eq!(token.kind, TokenK::OpEq);
-
-        let binding = self.token().infix_binding().left();
-        
-        let lhs = left;
-        self.advance();
-        let rhs = self.parse_expression(binding)?;
-        
-        match lhs.kind {
-            ExprK::Path(path) => {
-                let exspan = Span::new(lhs.span.bgn, rhs.span.end);
-                let path = Expr::new(lhs.span, ExprK::Path(path));
-                let exprk = ExprK::Assign(Ptr::new(path), Ptr::new(rhs));
-                Some(Expr::new(exspan, exprk))
-            },
-            _ => panic!("invalid lvalue")
-        }
-    }
-
     fn parse_block(&self, token: Token) -> Option<Expr> {
         debug_assert_eq!(token.kind, TokenK::LBrace);
         self.advance();
@@ -873,8 +882,6 @@ impl Parser {
     }
 
     fn parse_null_denotation(&self, token: Token) -> Option<Expr> {
-        std::io::stdin().read_line(&mut String::new());
-
         dbg_print!(green, "PARSE NULL DENOTATION ");
         dbg_print!("{:?}\n", token);
 
@@ -895,6 +902,9 @@ impl Parser {
             TokenK::LBrace   => {
                 self.parse_block(token)
             },
+            TokenK::RBrace   => {
+                None
+            },
             TokenK::Semi => {
                 let span = Span::none();
                 let empty = Expr::empty();
@@ -902,7 +912,7 @@ impl Parser {
                 Some(Expr::new(span, exprk))
             },
             _ => {
-                None
+                panic!("null")
             }
         }
     }
@@ -1186,9 +1196,10 @@ mod test {
         let expr = Parse::parse(source).expect("expected ast");
         let code = Emit::emit(&expr);
         let result = Eval::eval(&expr);
-
-        println!("{}", source);
+        
+        println!("{:#?}", expr);
         println!("{}", code);
+        println!("{}", source);
         println!("{}", result);
     }
 }
