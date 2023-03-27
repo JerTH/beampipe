@@ -100,6 +100,7 @@ impl FromStr for Value {
 
 pub struct Eval {
     vars: HashMap<Ident, Value>,
+    func: HashMap<Path, Expr>,
     symt: SymTable,
 }
 
@@ -108,6 +109,7 @@ impl Eval {
         let mut state = Self {
             vars: Default::default(),
             symt: Default::default(),
+            func: Default::default(),
         };
         state.eval_r(expr)
     }
@@ -225,7 +227,9 @@ impl Eval {
                 }
             },
 
-            ExprK::AssignOp(_, _, _) => { todo!() },
+            ExprK::AssignOp(_, _, _) => {
+                todo!()
+            },
 
             ExprK::Path(path) => {
                 let full_name = path.list.iter().fold(String::new(), |acc, x| {
@@ -241,6 +245,19 @@ impl Eval {
                     return Value::Ident(ident)
                 }
             },
+
+            ExprK::Fn(func) => {
+                let path = func.path.clone();
+                let body = func.body.clone();
+                let expr = Expr::new(body.span, ExprK::Blk(body));
+                self.func
+                    .entry(path.clone())
+                    .and_modify(|_| {
+                        panic!("multiple declarations of {:?}", path)
+                    })
+                    .or_insert(expr);
+                Value::None
+            }
         }
     }
 }
@@ -275,10 +292,18 @@ pub enum Ir {
     Float(f64),
     Jump(Marker),
     Load(Marker),
+
+    // A symbol - usually preceeds a function def
+    Symbol(Sym),
 }
 
 impl Display for Ir {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Ir::Symbol(_) => {},
+            _ => { write!(f, "\t")?; },
+        }
+
         match self {
             Ir::Nop => write!(f, "NOP"),
             Ir::Add => write!(f, "ADD"),
@@ -291,6 +316,7 @@ impl Display for Ir {
             Ir::Integer(value) => write!(f, "INT({})", value),
             Ir::Float(value) => write!(f, "FLOAT({})", value),
             Ir::Jump(marker) => write!(f, "JMP({})", marker),
+            Ir::Symbol(sym) => write!(f, "{}", sym),
         }
     }
 }
@@ -378,7 +404,9 @@ impl Emit {
                     BinOpK::Mul => { code.emit(Ir::Mul) },
                 }
             },
-            ExprK::AssignOp(_, _, _) => todo!(),
+            ExprK::AssignOp(_, _, _) => {
+                todo!()
+            },
             ExprK::Path(path) => {
                 match Eval::eval(&expr) {
                     Value::None => {},
@@ -389,6 +417,18 @@ impl Emit {
                     },
                 }
             },
+
+            // A function declaration
+            ExprK::Fn(func) => {
+                let path = &func.path;
+                let symbol = self.syms.make(path);
+                self.code.emit(Ir::Symbol(symbol));
+
+                let body = &func.body;
+                for expr in &body.list {
+                    self.emit_r(expr);
+                }
+            }
         }
     }
 }
@@ -623,7 +663,8 @@ impl Parser {
     }
 
     /// Asserts that the kind of the current token is equal to `tokenk`
-    fn expect(&self, tokenk: TokenK) -> Token {
+    /// and advances the token pointer if it is
+    fn eat(&self, tokenk: TokenK) -> Token {
         assert_eq!(self.token().kind, tokenk);
         self.advance()
     }
@@ -647,7 +688,16 @@ impl Parser {
     }
 
     fn parse(&mut self) -> Result<Expr, ParserError> {
-        self.astout = self.parse_expression(0);
+        let mut list = Vec::new();
+        while let Some(expr) = self.parse_expression(0) {
+            list.push(expr);
+        }
+
+        let blk = Blk::new(list, Span::none());
+        let block = ExprK::Blk(Ptr::new(blk));
+        self.astout = Some(Expr::new(Span::none(), block));
+
+        //self.astout = self.parse_expression(0);
         
         match self.errout.take() {
             Some(err) => {
@@ -672,7 +722,10 @@ impl Parser {
     fn parse_expression(&self, right_binding: usize) -> Option<Expr> {
         dbg_print!(green, "PARSE EXPRESSION "); 
         dbg_print!("{:?}\n", self.token()); 
-
+        if self.token().kind == TokenK::Eof {
+            return None
+        }
+        
         let mut left = self.parse_null_denotation(self.token())?;
         self.advance();
 
@@ -681,9 +734,8 @@ impl Parser {
         // tokens with the left denotation method. If the token is not left associative,
         // we return the null associative expression already stored in `left`
         dbg_print!(push, "");
-        dbg_print!("while {} < {}\n", right_binding, self.token().infix_binding().left());
         while right_binding < self.token().infix_binding().left() {
-            dbg_print!("loop if {} < {}\n", right_binding, self.token().infix_binding().left());
+            dbg_print!(blue, "LEFT ASSOCIATIVE LOOP\n"); 
             left = self.parse_left_denotation(left.clone(), self.token()).unwrap_or(left);
         }
         dbg_print!(pop, "");
@@ -691,24 +743,32 @@ impl Parser {
         Some(left)
     }
 
-    /// Combines paths
-    fn parse_path(&self, lhs: Expr, rhs: Expr) -> Option<Expr> {
+    /// Parses a qualified or unqualified path starting with the current token
+    fn sub_parse_path(&self) -> Option<Path> {
         dbg_print!(green, "PARSE PATH\n");
 
-        match (lhs.kind, rhs.kind) {
-            (ExprK::Path(lhs), ExprK::Path(rhs)) => {
-                let list = [&lhs.list[..], &rhs.list[..]].concat();
-                let span = Span::new(lhs.span.bgn, rhs.span.end);
-                let path = Path::new(list, span);
-                let exprk = ExprK::Path(Ptr::new(path));
-                Some(Expr::new(span, exprk))
-            },
-            _ => {
-                None
+        let mut list = Vec::new();
+        while self.token().kind == TokenK::LitIdent {
+            let ident = self.sub_parse_ident()?;
+            list.push(ident);
+
+            //self.advance(); // advances to :: which we skip, unless end of path
+            if let Some(TokenK::ColCol) = self.peek(1).map(|t| t.kind) {
+                self.eat(TokenK::ColCol);
+                self.advance();
+            } else {
+                break;
             }
         }
+
+        let span = Span::new(
+            list.first().unwrap().span.bgn,
+            list.last().unwrap().span.end,
+        );
+
+        Some(Path::new(list, span))
     }
-    
+
     fn parse_binop(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE BINOP\n");
         
@@ -745,12 +805,6 @@ impl Parser {
             TokenK::OpDiv => {
                 self.parse_binop(left, token)
             },
-            TokenK::ColCol => {
-                let binding = self.token().infix_binding().right();
-                let lhs = left;
-                let rhs = self.parse_expression(binding)?;
-                self.parse_path(lhs, rhs)
-            }
             _ => {
                 panic!("infix") // not a valid infix op
             }
@@ -772,13 +826,13 @@ impl Parser {
             }
         }
     }
-
+    
     fn parse_reverse_infix_op(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE REVERSE INFIX OP\n");
 
-        let lhs = left;
         self.advance();
-        let binding = self.token().infix_binding().right().saturating_sub(1);
+        let lhs = left;
+        let binding = self.token().infix_binding().right().saturating_sub(11);
         let rhs = self.parse_expression(binding)?;
 
         match token.kind {
@@ -842,16 +896,16 @@ impl Parser {
         Some(Expr::new(span, exprk))
     }
     
-    /// Parses an ident as a Path, paths can then be combined
-    fn parse_ident(&self, token: Token) -> Option<Expr> {
+    /// Parses the current token as an ident, returning it
+    fn sub_parse_ident(&self) -> Option<Ident> {
         dbg_print!(green, "PARSE IDENT\n");
-
+        assert_eq!(self.token().kind, TokenK::LitIdent);
+        
+        let token = self.token();
         let span = token.span;
-        let name = self.make_symbol(&token);
-        let ident = Ident { name, span };
-        let path = Path::new(vec![ident], span);
-        let exprk = ExprK::Path(Ptr::new(path));
-        Some(Expr::new(span, exprk))
+        let sym = self.make_symbol(&token);
+        let ident = Ident { name: sym, span };
+        Some(ident)
     }
 
     fn parse_prefix_op(&self, token: Token) -> Option<Expr> {
@@ -859,32 +913,98 @@ impl Parser {
         todo!();
     }
 
-    fn parse_block(&self, token: Token) -> Option<Expr> {
-        debug_assert_eq!(token.kind, TokenK::LBrace);
-        self.advance();
+    fn sub_parse_block(&self) -> Option<Blk> {
+        dbg_print!(green, "PARSE BLOCK\n");
+        self.eat(TokenK::LBrace);
 
         let mut expressions = Vec::new();
 
         while let Some(expr) = self.parse_expression(0) {
-            expressions.push(expr)
+            expressions.push(expr);
         }
-
-        self.expect(TokenK::RBrace);
 
         let span = Span::new(
             expressions.first().unwrap().span.bgn,
             expressions.first().unwrap().span.end
         );
 
-        let blk = Blk::new(expressions, span);
-        let exprk = ExprK::Blk(Ptr::new(blk));
-        Some(Expr::new(span, exprk))
+        Some(Blk::new(expressions, span))
     }
 
+    fn sub_parse_function_params(&self) -> Option<Vec<FnParam>> {
+        dbg_print!(green, "PARSE FUNCTION PARAMS\n");
+
+        self.eat(TokenK::LParen);
+        let mut params = Vec::new();
+        
+        while self.token().kind != TokenK::RParen {
+            dbg_print!(blue, "FUNCTION PARAM LOOP\n");
+            match self.token().kind {
+                TokenK::Comma => {
+                    self.advance();
+                    continue;
+                }
+                TokenK::LitIdent => {
+                    // the name of the parameter
+                    let ident = self.sub_parse_ident()?;
+                    self.advance();
+                    self.eat(TokenK::Colon);
+
+                    // the type of the parameter
+                    let typath = self.sub_parse_path()?;
+                    let tyspan = typath.span;
+                    let tyk = TyK::Path(Ptr::new(typath));
+                    let ty = Ty::new(tyk, tyspan);
+
+                    let span = Span::new(ident.span.bgn, ty.span.end);
+                    let param = FnParam::new(ty, ident, span);
+
+                    params.push(param);
+                    self.advance();
+                },
+                _ => panic!("unexpected token in function params")
+            }
+        }
+
+        Some(params)
+    }
+
+    fn print_state(&self) {
+        println!("STATE");
+        println!("  {:?}", self.token());
+        println!("  '{}'", self.source_fragment(self.token().span));
+    }
+    
+    fn parse_function_decl(&self) -> Option<Expr> {
+        dbg_print!(green, "PARSE FUNCTION DECL\n");
+        let kspan = self.token().span;
+
+        self.eat(TokenK::KeyFn);
+        let path = self.sub_parse_path().expect("expected function identifier");
+        self.advance();
+
+        // processes params, leaves us just after the RParen
+        let params = self.sub_parse_function_params()?;
+        self.advance();
+
+        let sigspan = Span::new(kspan.bgn, self.token().span.bgn);
+        let sig = FnSig::new(params, None, sigspan);
+
+        let body = self.sub_parse_block()?;
+        let span = Span::new(sigspan.bgn, body.span.end);
+        
+        println!("\n\nPARSED FUNCTION BLOCK\n\n");
+
+        let func = Fn::new(path, sig, body);
+        let exprk = ExprK::Fn(Ptr::new(func));
+        Some(Expr::new(span, exprk))
+    }
+    
     fn parse_null_denotation(&self, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE NULL DENOTATION ");
-        dbg_print!("{:?}\n", token);
+        dbg_print!("{:?}\n", self.token());
 
+        let token = self.token();
         let kind = token.kind;
 
         match kind {
@@ -893,26 +1013,38 @@ impl Parser {
                 self.parse_literal(token)
             },
             TokenK::LitIdent => {
-                self.parse_ident(token)
+                let path = self.sub_parse_path().expect("expected valid path in ident");
+                let span = path.span;
+                let exprk = ExprK::Path(Ptr::new(path));
+                Some(Expr::new(span, exprk))
             }
             TokenK::OpBang   |
             TokenK::OpSub    => {
                 self.parse_prefix_op(token)
             },
             TokenK::LBrace   => {
-                self.parse_block(token)
+                let blk = self.sub_parse_block()?;
+                let span = blk.span;
+                let exprk = ExprK::Blk(Ptr::new(blk));
+                Some(Expr::new(span, exprk))
             },
             TokenK::RBrace   => {
                 None
             },
-            TokenK::Semi => {
+            TokenK::Semi     => {
                 let span = Span::none();
                 let empty = Expr::empty();
                 let exprk = ExprK::Semi(Ptr::new(empty));
                 Some(Expr::new(span, exprk))
             },
+            TokenK::KeyFn    => {
+                self.parse_function_decl()
+            },
+            TokenK::Eof     => {
+                None
+            },
             _ => {
-                panic!("null")
+                None
             }
         }
     }
@@ -1197,7 +1329,7 @@ mod test {
         let code = Emit::emit(&expr);
         let result = Eval::eval(&expr);
         
-        println!("{:#?}", expr);
+        //println!("{:#?}", expr);
         println!("{}", code);
         println!("{}", source);
         println!("{}", result);

@@ -110,8 +110,12 @@ impl Debug for Span {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Path     { pub astid: AstId, pub list: Vec<Ident>, pub span: Span, }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Path     {
+    pub astid: AstId,
+    pub list: Vec<Ident>,
+    pub span: Span,
+}
 
 impl Path {
     pub fn new(list: Vec<Ident>, span: Span) -> Self {
@@ -127,8 +131,30 @@ impl Into<String> for &Ptr<Path> {
     }
 }
 
+impl Into<String> for &Path {
+    fn into(self) -> String {
+        self.list.iter().fold(String::new(), |acc, x| {
+            format!("{}::{}", acc, x)
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
-pub struct Ty       { pub astid: AstId, pub kind: TyK, pub span: Span, }
+pub struct Ty {
+    pub astid: AstId,
+    pub kind: TyK,
+    pub span: Span,
+}
+
+impl Ty {
+    pub fn new(kind: TyK, span: Span) -> Self {
+        Self {
+            astid: astid!(),
+            kind,
+            span,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Local    { pub astid: AstId, pub ident: Ident, pub kind: LocalK, pub ty: Ptr<Ty>, pub span: Span, }
@@ -143,13 +169,22 @@ impl Blk {
 }
 
 #[derive(Debug, Clone)]
-pub struct Item     { pub astid: AstId, pub ident: Ident, }
+pub struct Item     {
+    pub astid: AstId,
+    pub ident: Ident,
+}
 
 #[derive(Debug, Clone)]
-pub struct Lit      { pub symbol: Sym, pub kind: LitK, }
+pub struct Lit      {
+    pub symbol: Sym,
+    pub kind: LitK,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Ident    { pub name: Sym, pub span: Span, }
+pub struct Ident    {
+    pub name: Sym,
+    pub span: Span,
+}
 
 impl Display for Ident {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -158,10 +193,17 @@ impl Display for Ident {
 }
 
 #[derive(Debug, Clone)]
-pub struct BinOp    { pub span: Span, pub kind: BinOpK, }
+pub struct BinOp    {
+    pub span: Span,
+    pub kind: BinOpK,
+}
 
 #[derive(Debug, Clone)]
-pub struct Expr     { pub astid: AstId, pub kind: ExprK, pub span: Span, }
+pub struct Expr     {
+    pub astid: AstId,
+    pub kind: ExprK,
+    pub span: Span,
+}
 
 impl Expr {
     pub fn new(span: Span, exprk: ExprK) -> Self {
@@ -181,34 +223,103 @@ impl Expr {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FnParam  {
+    pub id: AstId,
+    pub ty: Ty,
+    pub ident: Ident,
+    pub span: Span,
+}
+
+impl FnParam {
+    pub fn new(ty: Ty, ident: Ident, span: Span) -> Self {
+        FnParam { id: astid!(), ty, ident, span }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FnSig    {
+    pub params: Vec<FnParam>,
+    pub ret: Option<Ty>,
+    pub span: Span,
+}
+
+impl FnSig {
+    pub fn new(params: Vec<FnParam>, ret: Option<Ty>, span: Span) -> Self {
+        Self {
+            params,
+            span,
+            ret,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Fn {
+    pub id: AstId,
+    pub path: Path,
+    pub sig: FnSig,
+    pub body: Ptr<Blk>,
+}
+
+impl Fn {
+    pub fn new(path: Path, sig: FnSig, body: Blk) -> Self {
+        Self {
+            id: astid!(),
+            path,
+            sig,
+            body: Ptr::new(body)
+        }
+    }
+}
+
 // Kinds
 #[derive(Debug, Clone)]
-pub enum TyK        { Array(Ptr<Ty>), Path(Ptr<Path>), }
+pub enum TyK {
+    Array(Ptr<Ty>),
+    Path(Ptr<Path>),
+    Infer,
+}
 
 #[derive(Debug, Clone)]
-pub enum LocalK     { Decl, Init(Ptr<Expr>), }
+pub enum LocalK     {
+    Decl,
+    Init(Ptr<Expr>),
+}
 
 #[derive(Debug, Clone)]
-pub enum ItemK      {  }
+pub enum ItemK      {
+
+}
 
 #[derive(Debug, Clone)]
-pub enum LitK       { Bool, Int, Float, }
+pub enum LitK       {
+    Bool,
+    Int,
+    Float,
+}
 
 #[derive(Debug, Clone)]
-pub enum BinOpK     { Add, Sub, Div, Mul }
+pub enum BinOpK     {
+    Add,
+    Sub,
+    Div,
+    Mul
+}
 
 #[derive(Debug, Clone)]
 pub enum ExprK {
     Empty,
+    Item(Ptr<Item>),
     Semi(Ptr<Expr>), // semicolon terminated expression
     Local(Ptr<Local>),
-    Item(Ptr<Item>),
     Lit(Ptr<Lit>),
     Blk(Ptr<Blk>),
     Assign(Ptr<Expr>, Ptr<Expr>),
     BinOp(BinOp, Ptr<Expr>, Ptr<Expr>),
     AssignOp(Ptr<BinOp>, Ptr<Expr>, Ptr<Expr>),
     Path(Ptr<Path>),
+    Fn(Ptr<Fn>),
 }
 
 impl ExprK {
@@ -218,108 +329,6 @@ impl ExprK {
             p!(Expr::new(span, ExprK::Empty)),
             p!(Expr::new(span, ExprK::Empty))
         )
-    }
-}
-
-#[allow(dead_code)]
-fn test_tree() -> Expr {
-    let mut syms = SymTable::new();
-
-    Expr {
-        astid: astid!(),
-        kind: ExprK::Blk(p!(Blk {
-            astid: astid!(),
-            list: vec![
-                Expr {
-                    astid: astid!(),
-                    kind: ExprK::Assign(
-                        p!(Expr {
-                            astid: astid!(),
-                            kind: ExprK::Path(p!(Path {
-                                astid: astid!(),
-                                list: vec![
-                                    Ident {
-                                        name: syms.make("my_var"),
-                                        span: Span::none(),
-                                    }
-                                ],
-                                span: Span::none(),
-                            })),
-                            span: Span::none(),
-                        }),
-                        p!(Expr {
-                            astid: astid!(),
-                            kind: ExprK::Lit(p!(Lit {
-                                symbol: syms.make("69"),
-                                kind: LitK::Int
-                            })),
-                            span: Span::none(),
-                        }),
-                    ),
-                    span: Span::none(),
-                },
-
-                Expr {
-                    astid:astid!(), 
-                    kind: ExprK::Assign(
-                        p!(Expr {
-                            astid: astid!(),
-                            kind: ExprK::Path(p!(Path {
-                                astid: astid!(),
-                                list: vec![Ident {
-                                    name: syms.make("my_var"),
-                                    span: Span::none(),
-                                }],
-                                span: Span::none(),
-                            })),
-                            span: Span::none(),
-                        }),
-                        p!(Expr {
-                            astid: astid!(),
-                            kind: ExprK::BinOp(
-                                BinOp {
-                                    span: Span::none(),
-                                    kind: BinOpK::Add
-                                },
-                                p!(Expr {
-                                    astid: astid!(),
-                                    kind: ExprK::Lit(p!(Lit {
-                                        symbol: syms.make("1"),
-                                        kind: LitK::Int,
-                                    })),
-                                    span: Span::none(),
-                                }),
-                                p!(Expr {
-                                    astid: astid!(),
-                                    kind: ExprK::Lit(p!(Lit {
-                                        symbol: syms.make("2"),
-                                        kind: LitK::Int,
-                                    })),
-                                    span: Span::none(),
-                                }),
-                            ),
-                            span: Span::none(),
-                        })
-                    ), 
-                    span: Span::none() 
-                },
-
-                Expr {
-                    astid: astid!(),
-                    kind: ExprK::Path(p!(Path {
-                        astid: astid!(),
-                        list: vec![Ident {
-                            name: syms.make("my_var"),
-                            span: Span::none(),
-                        }],
-                        span: Span::none(),
-                    })),
-                    span: Span::none(),
-                }
-            ],
-            span: Span::none(), 
-        })),
-        span: Span::none(),
     }
 }
 
@@ -461,19 +470,3 @@ fn err_fatal<E: Error>(err: E, why: &'static str) -> ! {
     panic!("fatal internal error: {why},\n{err}")
 }
 
-#[cfg(test)]
-mod test {
-    use crate::codegen::{Eval, Emit};
-
-    use super::*;
-
-    #[test]
-    #[ignore]
-    fn make_test_tree() {
-        let tree = test_tree();
-        let code = Emit::emit(&tree);
-        let result = Eval::eval(&tree);
-        println!("{result}");
-        println!("{code}");
-    }
-}
