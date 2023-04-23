@@ -461,6 +461,9 @@ const TOK_COMMA: &'static str = ",";
 const TOK_DOT: &'static str = ".";
 
 const TOK_USIZE: &'static str = "usize";
+const TOK_ISIZE: &'static str = "isize";
+const TOK_I32: &'static str = "i32";
+const TOK_I64: &'static str = "i64";
 const TOK_U32: &'static str = "u32";
 const TOK_U64: &'static str = "u64";
 const TOK_F32: &'static str = "f32";
@@ -596,7 +599,6 @@ pub struct Parser {
     source: String,
     tokens: Vec<Token>,
     cursor: Cell<usize>,
-    rewind: RefCell<Vec<usize>>,
     symtab: SymTable,
     astout: Option<Expr>,
     errout: Option<ParserError>,
@@ -608,7 +610,6 @@ impl Parser {
         Self {
             source: String::new(),
             cursor: Cell::new(0),
-            rewind: RefCell::new(Vec::new()),
             tokens: Vec::new(),
             symtab: SymTable::new(),
             astout: None,
@@ -667,24 +668,6 @@ impl Parser {
     fn eat(&self, tokenk: TokenK) -> Token {
         assert_eq!(self.token().kind, tokenk);
         self.advance()
-    }
-
-    fn save_cursor(&self) {
-        dbg_print!(green, "SAVE ");
-        dbg_print!("{} / {}\n", self.cursor.get(), self.tokens.len());
-
-        self.rewind.borrow_mut().push(self.cursor.get());
-    }
-
-    fn rewind_cursor(&self) {
-        if let Some(rewind) = self.rewind.borrow_mut().pop() {
-            dbg_print!(magenta, "REWIND ");
-            dbg_print!("{} <- {}\n", rewind, self.cursor.get());
-            self.change.set(true);
-            self.cursor.set(rewind)
-        } else {
-            dbg_print!(magenta, "REWIND: NO REWIND HISTORY\n");
-        }
     }
 
     fn parse(&mut self) -> Result<Expr, ParserError> {
@@ -747,11 +730,16 @@ impl Parser {
     fn sub_parse_path(&self) -> Option<Path> {
         dbg_print!(green, "PARSE PATH\n");
 
+        // todo: may need special handling for primitive types
+        // type parsing is sort of handled here but might be
+        // better in its own separate solution
+
         let mut list = Vec::new();
-        while self.token().kind == TokenK::LitIdent {
+        while (self.token().kind == TokenK::LitIdent)
+            | (self.token().kind == TokenK::Ty) {
             let ident = self.sub_parse_ident()?;
             list.push(ident);
-
+            
             //self.advance(); // advances to :: which we skip, unless end of path
             if let Some(TokenK::ColCol) = self.peek(1).map(|t| t.kind) {
                 self.eat(TokenK::ColCol);
@@ -760,7 +748,7 @@ impl Parser {
                 break;
             }
         }
-
+        
         let span = Span::new(
             list.first().unwrap().span.bgn,
             list.last().unwrap().span.end,
@@ -899,8 +887,7 @@ impl Parser {
     /// Parses the current token as an ident, returning it
     fn sub_parse_ident(&self) -> Option<Ident> {
         dbg_print!(green, "PARSE IDENT\n");
-        assert_eq!(self.token().kind, TokenK::LitIdent);
-        
+
         let token = self.token();
         let span = token.span;
         let sym = self.make_symbol(&token);
@@ -969,12 +956,6 @@ impl Parser {
         Some(params)
     }
 
-    fn print_state(&self) {
-        println!("STATE");
-        println!("  {:?}", self.token());
-        println!("  '{}'", self.source_fragment(self.token().span));
-    }
-    
     fn parse_function_decl(&self) -> Option<Expr> {
         dbg_print!(green, "PARSE FUNCTION DECL\n");
         let kspan = self.token().span;
@@ -1008,7 +989,7 @@ impl Parser {
         let kind = token.kind;
 
         match kind {
-            TokenK::LitInt   |
+            TokenK::LitInt |
             TokenK::LitFloat => {
                 self.parse_literal(token)
             },
@@ -1018,29 +999,29 @@ impl Parser {
                 let exprk = ExprK::Path(Ptr::new(path));
                 Some(Expr::new(span, exprk))
             }
-            TokenK::OpBang   |
-            TokenK::OpSub    => {
+            TokenK::OpBang |
+            TokenK::OpSub => {
                 self.parse_prefix_op(token)
             },
-            TokenK::LBrace   => {
+            TokenK::LBrace => {
                 let blk = self.sub_parse_block()?;
                 let span = blk.span;
                 let exprk = ExprK::Blk(Ptr::new(blk));
                 Some(Expr::new(span, exprk))
             },
-            TokenK::RBrace   => {
+            TokenK::RBrace => {
                 None
             },
-            TokenK::Semi     => {
+            TokenK::Semi => {
                 let span = Span::none();
                 let empty = Expr::empty();
                 let exprk = ExprK::Semi(Ptr::new(empty));
                 Some(Expr::new(span, exprk))
             },
-            TokenK::KeyFn    => {
+            TokenK::KeyFn => {
                 self.parse_function_decl()
             },
-            TokenK::Eof     => {
+            TokenK::Eof => {
                 None
             },
             _ => {
@@ -1057,8 +1038,19 @@ impl Parser {
     fn source_fragment(&self, span: Span) -> String {
         String::from(&self.source[span.bgn..=span.end])
     }
-}
 
+    #[allow(dead_code)]
+    #[cfg(not(debug_assertions))]
+    fn dbg_state(&self) {}
+
+    #[allow(dead_code)]
+    #[cfg(debug_assertions)]
+    fn dbg_state(&self) {
+        println!("STATE");
+        println!("  {:?}", self.token());
+        println!("  '{}'", self.source_fragment(self.token().span));
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct Parse {
@@ -1106,7 +1098,6 @@ impl Parse {
             source: self.source.clone(),
             tokens: self.tokens.clone(),
             cursor: Cell::new(0),
-            rewind: RefCell::new(Vec::new()),
             symtab: SymTable::new(),
             astout: None,
             errout: None,
@@ -1218,6 +1209,9 @@ impl Parse {
                 TOK_RET     => Some(Token::new(tspan, TokenK::KeyReturn)),
                 
                 TOK_USIZE   => Some(Token::new(tspan, TokenK::Ty)),
+                TOK_ISIZE   => Some(Token::new(tspan, TokenK::Ty)),
+                TOK_I32     => Some(Token::new(tspan, TokenK::Ty)),
+                TOK_I64     => Some(Token::new(tspan, TokenK::Ty)),
                 TOK_U32     => Some(Token::new(tspan, TokenK::Ty)),
                 TOK_U64     => Some(Token::new(tspan, TokenK::Ty)),
                 TOK_F32     => Some(Token::new(tspan, TokenK::Ty)),
