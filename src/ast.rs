@@ -1,4 +1,17 @@
-use std::{ops::{Deref, DerefMut, Bound, RangeBounds}, collections::HashMap, sync::{Arc, RwLock, atomic::{AtomicUsize, Ordering}}, error::Error, fmt::{Debug, Display}, str::FromStr, hash::Hash};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt::{Debug, Display},
+    hash::Hash,
+    ops::{Bound, Deref, DerefMut, RangeBounds},
+    str::FromStr,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, RwLock,
+    },
+};
+
+use crate::tokens::Block;
 
 type PtrType<T> = Box<T>;
 
@@ -19,7 +32,10 @@ impl<T> Deref for Ptr<T> {
     }
 }
 
-impl<T> Debug for Ptr<T> where T: Debug {
+impl<T> Debug for Ptr<T>
+where
+    T: Debug,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if f.alternate() {
             f.write_fmt(format_args!("{:#?}", self.0.deref()))
@@ -29,7 +45,10 @@ impl<T> Debug for Ptr<T> where T: Debug {
     }
 }
 
-impl<T> Display for Ptr<T> where T: Display {
+impl<T> Display for Ptr<T>
+where
+    T: Display,
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -38,7 +57,7 @@ impl<T> Display for Ptr<T> where T: Display {
 macro_rules! p {
     ($e:expr) => {
         Ptr::new($e)
-    }
+    };
 }
 
 static AST_ID_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -88,9 +107,9 @@ impl Span {
     pub fn none() -> Self {
         Span { bgn: 0, end: 0 }
     }
-    
+
     pub fn new(bgn: usize, end: usize) -> Self {
-        Span { bgn, end}
+        Span { bgn, end }
     }
 }
 
@@ -111,7 +130,7 @@ impl Debug for Span {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Path     {
+pub struct Path {
     pub astid: AstId,
     pub list: Vec<Ident>,
     pub span: Span,
@@ -119,23 +138,27 @@ pub struct Path     {
 
 impl Path {
     pub fn new(list: Vec<Ident>, span: Span) -> Self {
-        Self { astid: astid!(), list, span }
+        Self {
+            astid: astid!(),
+            list,
+            span,
+        }
     }
 }
 
 impl Into<String> for &Ptr<Path> {
     fn into(self) -> String {
-        self.list.iter().fold(String::new(), |acc, x| {
-            format!("{}::{}", acc, x)
-        })
+        self.list
+            .iter()
+            .fold(String::new(), |acc, x| format!("{}::{}", acc, x))
     }
 }
 
 impl Into<String> for &Path {
     fn into(self) -> String {
-        self.list.iter().fold(String::new(), |acc, x| {
-            format!("{}::{}", acc, x)
-        })
+        self.list
+            .iter()
+            .fold(String::new(), |acc, x| format!("{}::{}", acc, x))
     }
 }
 
@@ -157,31 +180,45 @@ impl Ty {
 }
 
 #[derive(Debug, Clone)]
-pub struct Local    { pub astid: AstId, pub ident: Ident, pub kind: LocalK, pub ty: Ptr<Ty>, pub span: Span, }
+pub struct Local {
+    pub astid: AstId,
+    pub ident: Ident,
+    pub kind: LocalK,
+    pub ty: Ptr<Ty>,
+    pub span: Span,
+}
 
 #[derive(Debug, Clone)]
-pub struct Blk      { pub astid: AstId, pub list: Vec<Expr>, pub span: Span, }
+pub struct Blk {
+    pub astid: AstId,
+    pub list: Vec<Expr>,
+    pub span: Span,
+}
 
 impl Blk {
     pub fn new(list: Vec<Expr>, span: Span) -> Self {
-        Blk { astid: astid!(), list, span }
+        Blk {
+            astid: astid!(),
+            list,
+            span,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct Item     {
+pub struct Item {
     pub astid: AstId,
     pub ident: Ident,
 }
 
 #[derive(Debug, Clone)]
-pub struct Lit      {
+pub struct Lit {
     pub symbol: Sym,
     pub kind: LitK,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Ident    {
+pub struct Ident {
     pub name: Sym,
     pub span: Span,
 }
@@ -193,13 +230,13 @@ impl Display for Ident {
 }
 
 #[derive(Debug, Clone)]
-pub struct BinOp    {
+pub struct BinOp {
     pub span: Span,
     pub kind: BinOpK,
 }
 
 #[derive(Debug, Clone)]
-pub struct Expr     {
+pub struct Expr {
     pub astid: AstId,
     pub kind: ExprK,
     pub span: Span,
@@ -213,7 +250,7 @@ impl Expr {
             span,
         }
     }
-    
+
     pub fn empty() -> Expr {
         Expr {
             astid: astid!(),
@@ -224,7 +261,7 @@ impl Expr {
 }
 
 #[derive(Debug, Clone)]
-pub struct FnParam  {
+pub struct FnParam {
     pub id: AstId,
     pub ty: Ty,
     pub ident: Ident,
@@ -233,12 +270,17 @@ pub struct FnParam  {
 
 impl FnParam {
     pub fn new(ty: Ty, ident: Ident, span: Span) -> Self {
-        FnParam { id: astid!(), ty, ident, span }
+        FnParam {
+            id: astid!(),
+            ty,
+            ident,
+            span,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct FnSig    {
+pub struct FnSig {
     pub params: Vec<FnParam>,
     pub ret: Option<Ty>,
     pub span: Span,
@@ -246,11 +288,7 @@ pub struct FnSig    {
 
 impl FnSig {
     pub fn new(params: Vec<FnParam>, ret: Option<Ty>, span: Span) -> Self {
-        Self {
-            params,
-            span,
-            ret,
-        }
+        Self { params, span, ret }
     }
 }
 
@@ -268,7 +306,7 @@ impl Fn {
             id: astid!(),
             path,
             sig,
-            body: Ptr::new(body)
+            body: Ptr::new(body),
         }
     }
 }
@@ -282,29 +320,29 @@ pub enum TyK {
 }
 
 #[derive(Debug, Clone)]
-pub enum LocalK     {
+pub enum LocalK {
     Decl,
     Init(Ptr<Expr>),
 }
 
 #[derive(Debug, Clone)]
-pub enum ItemK      {
-
-}
+pub enum ItemK {}
 
 #[derive(Debug, Clone)]
-pub enum LitK       {
+pub enum LitK {
     Bool,
     Int,
     Float,
 }
 
 #[derive(Debug, Clone)]
-pub enum BinOpK     {
+pub enum BinOpK {
     Add,
     Sub,
     Div,
-    Mul
+    Mul,
+    CmpLess,
+    CmpGreater,
 }
 
 #[derive(Debug, Clone)]
@@ -320,6 +358,7 @@ pub enum ExprK {
     AssignOp(Ptr<BinOp>, Ptr<Expr>, Ptr<Expr>),
     Path(Ptr<Path>),
     Fn(Ptr<Fn>),
+    If(Ptr<Expr>, Ptr<Expr>, Option<Ptr<Expr>>),
 }
 
 impl ExprK {
@@ -327,7 +366,7 @@ impl ExprK {
         ExprK::BinOp(
             BinOp { span, kind },
             p!(Expr::new(span, ExprK::Empty)),
-            p!(Expr::new(span, ExprK::Empty))
+            p!(Expr::new(span, ExprK::Empty)),
         )
     }
 }
@@ -345,20 +384,23 @@ impl SymTable {
             astid: astid!(),
         }
     }
-    
+
     pub fn make<'a, S: Into<String>>(&self, string: S) -> Sym {
         let string: String = string.into();
-        
+
         match self.table.write() {
             Ok(mut guard) => {
                 let key = SymTable::hash_str(string.as_str());
 
                 guard.insert(key, string.into());
-                Sym { index: key, table: self.clone() }
-            },
+                Sym {
+                    index: key,
+                    table: self.clone(),
+                }
+            }
             Err(err) => {
                 err_fatal(err, "poisoned rwlock on symtable");
-            },
+            }
         }
     }
 
@@ -372,7 +414,7 @@ impl SymTable {
         }
 
         state
-    } 
+    }
 }
 
 impl std::cmp::PartialEq for SymTable {
@@ -381,7 +423,7 @@ impl std::cmp::PartialEq for SymTable {
     }
 }
 
-impl std::cmp::Eq for SymTable { }
+impl std::cmp::Eq for SymTable {}
 
 impl std::cmp::PartialOrd for SymTable {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -423,19 +465,17 @@ impl Sym {
 
     pub fn as_string(&self) -> String {
         match self.table.read() {
-            Ok(table) => {
-                match table.get(&self.index) {
-                    Some(strval) => {
-                        return strval.clone();
-                    },
-                    None => {
-                        return String::from("unknown symbol");
-                    },
+            Ok(table) => match table.get(&self.index) {
+                Some(strval) => {
+                    return strval.clone();
+                }
+                None => {
+                    return String::from("unknown symbol");
                 }
             },
             Err(_) => {
                 return String::from("sym:[internal error]");
-            },
+            }
         }
     }
 }
@@ -444,11 +484,17 @@ impl Display for Sym {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.table.read() {
             Ok(table) => {
-                write!(f, "{}", table.get(&self.index).unwrap_or(&String::from("unknown symbol")))
-            },
+                write!(
+                    f,
+                    "{}",
+                    table
+                        .get(&self.index)
+                        .unwrap_or(&String::from("unknown symbol"))
+                )
+            }
             Err(_) => {
                 write!(f, "sym:[internal error]")
-            },
+            }
         }
     }
 }
@@ -457,11 +503,17 @@ impl Debug for Sym {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.table.read() {
             Ok(table) => {
-                write!(f, "[SYM:{}]", table.get(&self.index).unwrap_or(&String::from("unknown symbol")))
-            },
+                write!(
+                    f,
+                    "[SYM:{}]",
+                    table
+                        .get(&self.index)
+                        .unwrap_or(&String::from("unknown symbol"))
+                )
+            }
             Err(_) => {
                 write!(f, "[internal error]")
-            },
+            }
         }
     }
 }
@@ -469,4 +521,3 @@ impl Debug for Sym {
 fn err_fatal<E: Error>(err: E, why: &'static str) -> ! {
     panic!("fatal internal error: {why},\n{err}")
 }
-

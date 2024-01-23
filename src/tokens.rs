@@ -382,7 +382,6 @@ mod test {
     use super::*;
 
     #[test]
-    #[ignore]
     fn interp_add() {
         //let ast = Expr::add(
         //    Expr::value(Value::int(27)),

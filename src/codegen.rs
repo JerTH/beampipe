@@ -71,6 +71,7 @@ pub enum Value {
     Int(i64),
     Float(f64),
     Ident(Ident),
+    Bool(bool),
 }
 
 impl Display for Value {
@@ -80,6 +81,7 @@ impl Display for Value {
             Value::Int(value) => write!(f, "{value}"),
             Value::Float(value) => write!(f, "{value}"),
             Value::Ident(value) => write!(f, "{value:?}"),
+            Value::Bool(value) => write!(f, "{value:?}"),
         }
     }
 }
@@ -224,9 +226,35 @@ impl Eval {
                             }
                         }
                     },
+                    BinOpK::CmpLess => {
+                        match (self.eval_r(lhs), self.eval_r(rhs)) {
+                            (Value::Int(lhs), Value::Int(rhs)) => {
+                                return Value::Bool(lhs < rhs);
+                            },
+                            (Value::Float(lhs), Value::Float(rhs)) => {
+                                return Value::Bool(lhs < rhs);
+                            },
+                            (lhs, rhs) => {
+                                err_op_mismatch("less than", lhs, rhs);
+                            }
+                        }
+                    },
+                    BinOpK::CmpGreater => {
+                        match (self.eval_r(lhs), self.eval_r(rhs)) {
+                            (Value::Int(lhs), Value::Int(rhs)) => {
+                                return Value::Bool(lhs > rhs);
+                            },
+                            (Value::Float(lhs), Value::Float(rhs)) => {
+                                return Value::Bool(lhs > rhs);
+                            },
+                            (lhs, rhs) => {
+                                err_op_mismatch("greater than", lhs, rhs);
+                            }
+                        }
+                    },
                 }
             },
-
+            
             ExprK::AssignOp(_, _, _) => {
                 todo!()
             },
@@ -257,29 +285,43 @@ impl Eval {
                     })
                     .or_insert(expr);
                 Value::None
-            }
+            },
+
+            ExprK::If(_, _, _) => {
+                todo!()
+            },
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Marker {
     Symbol(Sym),
     Ident(Ident),
-    Offset(usize),
+    Offset(isize),
+    Temporary,
 }
 
 impl Display for Marker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Marker::Ident(ident) => write!(f, "{}", ident),
-            Marker::Offset(offset) => write!(f, "${}", offset),
+            Marker::Offset(offset) => {
+                let sig_str = match offset.signum() {
+                    0 => "",
+                    1 => "+",
+                    -1 => "-",
+                    _ => panic!("invalid signum")
+                };
+                write!(f, "{}{}", sig_str, offset)
+            },
             Marker::Symbol(sym) => write!(f, "&{}", sym.as_string()),
+            Marker::Temporary => write!(f, "&TEMP_PLACEHOLDER"),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialOrd)]
 pub enum Ir {
     Nop,
     Add,
@@ -291,11 +333,40 @@ pub enum Ir {
     Integer(i64),
     Float(f64),
     Jump(Marker),
+    JumpTrue(Marker),
+    JumpFalse(Marker),
     Load(Marker),
 
+    CmpLess,
+    CmpGreater,
+    
     // A symbol - usually preceeds a function def
     Symbol(Sym),
+    Return,
 }
+
+impl PartialEq for Ir {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Store(l0), Self::Store(r0)) => l0 == r0,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
+            (Self::Float(l0), Self::Float(r0)) => {
+                assert_eq!(false, l0.is_nan());
+                assert_eq!(false, r0.is_nan());
+                l0 == r0
+            },
+            (Self::Jump(l0), Self::Jump(r0)) => l0 == r0,
+            (Self::JumpTrue(l0), Self::JumpTrue(r0)) => l0 == r0,
+            (Self::JumpFalse(l0), Self::JumpFalse(r0)) => l0 == r0,
+            (Self::Load(l0), Self::Load(r0)) => l0 == r0,
+            (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
+impl Eq for Ir {}
 
 impl Display for Ir {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -316,7 +387,12 @@ impl Display for Ir {
             Ir::Integer(value) => write!(f, "INT({})", value),
             Ir::Float(value) => write!(f, "FLOAT({})", value),
             Ir::Jump(marker) => write!(f, "JMP({})", marker),
+            Ir::JumpTrue(marker) => write!(f, "JMPC({})", marker),
+            Ir::JumpFalse(marker) => write!(f, "JMPN({})", marker),
             Ir::Symbol(sym) => write!(f, "{}", sym),
+            Ir::CmpLess => write!(f, "LT"),
+            Ir::CmpGreater => write!(f, "GT"),
+            Ir::Return => write!(f, "RET"),
         }
     }
 }
@@ -336,8 +412,29 @@ impl Display for IrCode {
 }
 
 impl IrCode {
-    fn emit(&self, ir: Ir) {
+    /// Emit a new code at the end of the stream
+    pub fn emit(&self, ir: Ir) {
         self.code.borrow_mut().push(ir);
+    }
+
+    /// Change an already emitted code at a specified location if
+    /// the code already at that location matches `pred`
+    /// 
+    /// Useful for patching markers
+    pub fn patch(&self, ir: Ir, at: usize, pred: Ir) {
+        assert!(at < self.len());
+
+        if let Some(code) = self.code.borrow_mut().get_mut(at) {
+            if *code == pred {
+                *code = ir
+            } else {
+                panic!("codegen: expected {:?} but found {:?} during patch operation", pred, code);
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.code.borrow().len()
     }
 }
 
@@ -402,6 +499,8 @@ impl Emit {
                     BinOpK::Sub => { code.emit(Ir::Sub) },
                     BinOpK::Div => { code.emit(Ir::Div) },
                     BinOpK::Mul => { code.emit(Ir::Mul) },
+                    BinOpK::CmpLess => { code.emit(Ir::CmpLess) },
+                    BinOpK::CmpGreater => { code.emit(Ir::CmpGreater) },
                 }
             },
             ExprK::AssignOp(_, _, _) => {
@@ -415,9 +514,10 @@ impl Emit {
                     Value::Ident(ident) => {
                         code.emit(Ir::Load(Marker::Ident(ident)))
                     },
+                    Value::Bool(value) => todo!(),
                 }
             },
-
+            
             // A function declaration
             ExprK::Fn(func) => {
                 let path = &func.path;
@@ -428,12 +528,39 @@ impl Emit {
                 for expr in &body.list {
                     self.emit_r(expr);
                 }
-            }
+                self.code.emit(Ir::Return);
+            },
+            
+            ExprK::If(pred, blk, else_blk) => {
+                self.emit_r(pred);
+                
+                let cond_location = self.code.len();
+                self.code.emit(Ir::JumpFalse(Marker::Temporary));
+                
+                self.emit_r(blk);
+
+                let mut cond_jump_offset = self.code.len() as isize - cond_location as isize;
+                
+                if let Some(else_block) = else_blk {
+                    let jump_else_location = self.code.len();
+                    self.code.emit(Ir::Jump(Marker::Temporary));
+                    self.emit_r(&else_block);
+                    
+                    let else_jump_offset = self.code.len() as isize - jump_else_location as isize;
+                    self.code.patch(Ir::Jump(Marker::Offset(else_jump_offset)), jump_else_location, Ir::Jump(Marker::Temporary));
+
+                    cond_jump_offset += 1;
+                }
+
+                self.code.patch(Ir::JumpFalse(Marker::Offset(cond_jump_offset)), cond_location, Ir::JumpFalse(Marker::Temporary));
+                //todo!("codegen for if-else statement");
+            },
         }
     }
 }
 
 const TOK_IF: &'static str = "if";
+const TOK_ELSE: &'static str = "else";
 const TOK_FN: &'static str = "fn";
 const TOK_LET: &'static str = "let";
 const TOK_MUT: &'static str = "mut";
@@ -459,6 +586,8 @@ const TOK_COLON: &'static str = ":";
 const TOK_SEMI: &'static str = ";";
 const TOK_COMMA: &'static str = ",";
 const TOK_DOT: &'static str = ".";
+const TOK_LESS: &'static str = "<";
+const TOK_GREATER: &'static str = ">";
 
 const TOK_USIZE: &'static str = "usize";
 const TOK_ISIZE: &'static str = "isize";
@@ -498,9 +627,8 @@ pub enum TokenK {
     Colon,
     Comma,
 
-    // generated - sort these
-    EqEq,
     KeyIf,
+    KeyElse,
     KeyMut,
     KeyRef,
     KeyWhile,
@@ -509,6 +637,11 @@ pub enum TokenK {
     ColCol,
     OpBang,
     OpEq,
+    
+    // comparison
+    EqEq,
+    OpLess,
+    OpGreater,
 }
 
 impl Display for TokenK {
@@ -543,14 +676,16 @@ impl Token {
     
     pub fn infix_binding(&self) -> (usize, usize) {
         match self.kind {
-            TokenK::OpAdd   => (50, 50),
-            TokenK::OpSub   => (50, 50),
-            TokenK::OpMul   => (60, 60),
-            TokenK::OpDiv   => (60, 60),
-            TokenK::OpEq    => (90, 90),
-            TokenK::Dot     => (80, 80),
-            TokenK::ColCol  => (90, 90),
-            _               => (00, 00),
+            TokenK::OpAdd     => (50, 50),
+            TokenK::OpSub     => (50, 50),
+            TokenK::OpMul     => (60, 60),
+            TokenK::OpDiv     => (60, 60),
+            TokenK::OpEq      => (90, 90),
+            TokenK::Dot       => (80, 80),
+            TokenK::ColCol    => (90, 90),
+            TokenK::OpLess    => (30, 30),
+            TokenK::OpGreater => (30, 30),
+            _                 => (00, 00),
         }
     }
     
@@ -648,6 +783,11 @@ impl Parser {
         self.tokens.get(offset_cursor).cloned()
     }
 
+    fn peek_kind(&self, offset: isize) -> Option<TokenK> {
+        let offset_cursor = self.cursor.get().checked_add_signed(offset)?;
+        self.tokens.get(offset_cursor).cloned().map(|t| t.kind)
+    }
+
     /// Has the cursor moved since the last time this was called?
     fn cursor_moved(&self) -> bool {
         let moved = self.change.get();
@@ -666,17 +806,21 @@ impl Parser {
     /// Asserts that the kind of the current token is equal to `tokenk`
     /// and advances the token pointer if it is
     fn eat(&self, tokenk: TokenK) -> Token {
+        dbg_print!(red, "EAT ");
+        dbg_print!("{}\n", tokenk);
         assert_eq!(self.token().kind, tokenk);
         self.advance()
     }
 
+    /// Parse a token stream
     fn parse(&mut self) -> Result<Expr, ParserError> {
-        let mut list = Vec::new();
+        let mut expressions = Vec::new();
+
         while let Some(expr) = self.parse_expression(0) {
-            list.push(expr);
+            expressions.push(expr);
         }
 
-        let blk = Blk::new(list, Span::none());
+        let blk = Blk::new(expressions, Span::none());
         let block = ExprK::Blk(Ptr::new(blk));
         self.astout = Some(Expr::new(Span::none(), block));
 
@@ -704,14 +848,19 @@ impl Parser {
     /// Parsing begins with the token pointed to by self.token()
     fn parse_expression(&self, right_binding: usize) -> Option<Expr> {
         dbg_print!(green, "PARSE EXPRESSION "); 
-        dbg_print!("{:?}\n", self.token()); 
-        if self.token().kind == TokenK::Eof {
-            return None
+        dbg_print!("{:?}\n", self.token());
+
+        match self.token().kind {
+            TokenK::Eof |
+            TokenK::RBrace => {
+                return None
+            }
+            _ => {}
         }
         
         let mut left = self.parse_null_denotation(self.token())?;
-        self.advance();
-
+        //self.advance();
+        
         // as long as the right associative binding power is less than the left associative
         // binding power of the following token, we process successive infix and suffix
         // tokens with the left denotation method. If the token is not left associative,
@@ -727,7 +876,7 @@ impl Parser {
     }
 
     /// Parses a qualified or unqualified path starting with the current token
-    fn sub_parse_path(&self) -> Option<Path> {
+    fn parse_path(&self) -> Option<Path> {
         dbg_print!(green, "PARSE PATH\n");
 
         // todo: may need special handling for primitive types
@@ -736,12 +885,12 @@ impl Parser {
 
         let mut list = Vec::new();
         while (self.token().kind == TokenK::LitIdent)
-            | (self.token().kind == TokenK::Ty) {
-            let ident = self.sub_parse_ident()?;
+            | (self.token().kind == TokenK::Ty)
+        {
+            let ident = self.parse_ident()?;
             list.push(ident);
             
-            //self.advance(); // advances to :: which we skip, unless end of path
-            if let Some(TokenK::ColCol) = self.peek(1).map(|t| t.kind) {
+            if let Some(TokenK::ColCol) = self.peek_kind(1) {
                 self.eat(TokenK::ColCol);
                 self.advance();
             } else {
@@ -756,7 +905,7 @@ impl Parser {
 
         Some(Path::new(list, span))
     }
-
+    
     fn parse_binop(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE BINOP\n");
         
@@ -765,6 +914,8 @@ impl Parser {
             TokenK::OpSub => BinOpK::Sub,
             TokenK::OpMul => BinOpK::Mul,
             TokenK::OpDiv => BinOpK::Div,
+            TokenK::OpLess => BinOpK::CmpLess,
+            TokenK::OpGreater => BinOpK::CmpGreater,
             _ => {
                 panic!("binop") // not a valid binop
             }
@@ -787,9 +938,11 @@ impl Parser {
         dbg_print!(green, "PARSE INFIX OP\n");
         
         match token.kind {
-            TokenK::OpAdd |
-            TokenK::OpSub |
-            TokenK::OpMul |
+            TokenK::OpGreater |
+            TokenK::OpLess    |
+            TokenK::OpAdd     |
+            TokenK::OpSub     |
+            TokenK::OpMul     |
             TokenK::OpDiv => {
                 self.parse_binop(left, token)
             },
@@ -840,10 +993,12 @@ impl Parser {
         let kind = token.kind;
 
         match kind {
-            TokenK::ColCol |
-            TokenK::OpAdd  |
-            TokenK::OpSub  |
-            TokenK::OpMul  |
+            TokenK::ColCol    |
+            TokenK::OpGreater |
+            TokenK::OpLess    |
+            TokenK::OpAdd     |
+            TokenK::OpSub     |
+            TokenK::OpMul     |
             TokenK::OpDiv => {
                 self.parse_infix_op(left, token)
             },
@@ -861,9 +1016,14 @@ impl Parser {
         }
     }
 
-    fn parse_literal(&self, token: Token) -> Option<Expr> {
+
+    /// Parses the current token as a literal, returning it
+    /// 
+    /// Leaves the cursor directly after the literal
+    fn parse_literal(&self) -> Option<Expr> {
         dbg_print!(green, "PARSE LITERAL ");
-        
+        let token = self.token();
+
         let kind = token.kind;
         let span = token.span;
         
@@ -881,17 +1041,23 @@ impl Parser {
         dbg_print!("{:?}\n", &literal);
         
         let exprk = ExprK::Lit(Ptr::new(literal));
+        
+        self.advance();
         Some(Expr::new(span, exprk))
     }
     
     /// Parses the current token as an ident, returning it
-    fn sub_parse_ident(&self) -> Option<Ident> {
+    /// 
+    /// Leaves the cursor directly after the ident
+    fn parse_ident(&self) -> Option<Ident> {
         dbg_print!(green, "PARSE IDENT\n");
 
         let token = self.token();
         let span = token.span;
         let sym = self.make_symbol(&token);
         let ident = Ident { name: sym, span };
+
+        self.advance();
         Some(ident)
     }
 
@@ -900,8 +1066,9 @@ impl Parser {
         todo!();
     }
 
-    fn sub_parse_block(&self) -> Option<Blk> {
+    fn parse_block(&self) -> Option<Blk> {
         dbg_print!(green, "PARSE BLOCK\n");
+        dbg_print!(push, "");
         self.eat(TokenK::LBrace);
 
         let mut expressions = Vec::new();
@@ -909,16 +1076,23 @@ impl Parser {
         while let Some(expr) = self.parse_expression(0) {
             expressions.push(expr);
         }
-
+        
         let span = Span::new(
             expressions.first().unwrap().span.bgn,
-            expressions.first().unwrap().span.end
+            expressions.last().unwrap().span.end
         );
 
+        self.eat(TokenK::RBrace);
+
+        dbg_print!(red, "RETURN BLOCK\n");
+        dbg_print!(pop, "");
         Some(Blk::new(expressions, span))
     }
-
-    fn sub_parse_function_params(&self) -> Option<Vec<FnParam>> {
+    
+    /// Parses a functions parameters enclosed in parens.
+    /// 
+    /// After parsing the token cursor will be pointing to just after the right paren
+    fn parse_function_params(&self) -> Option<Vec<FnParam>> {
         dbg_print!(green, "PARSE FUNCTION PARAMS\n");
 
         self.eat(TokenK::LParen);
@@ -933,12 +1107,11 @@ impl Parser {
                 }
                 TokenK::LitIdent => {
                     // the name of the parameter
-                    let ident = self.sub_parse_ident()?;
-                    self.advance();
+                    let ident = self.parse_ident()?;
                     self.eat(TokenK::Colon);
 
                     // the type of the parameter
-                    let typath = self.sub_parse_path()?;
+                    let typath = self.parse_path()?;
                     let tyspan = typath.span;
                     let tyk = TyK::Path(Ptr::new(typath));
                     let ty = Ty::new(tyk, tyspan);
@@ -947,32 +1120,55 @@ impl Parser {
                     let param = FnParam::new(ty, ident, span);
 
                     params.push(param);
-                    self.advance();
                 },
                 _ => panic!("unexpected token in function params")
             }
         }
-
+        self.eat(TokenK::RParen);
         Some(params)
     }
 
+    /// Parses a function signature
+    /// 
+    /// 
+    fn parse_function_sig(&self) -> Option<FnSig> {
+        let mut span = self.token().span;
+        let params = self.parse_function_params()?;
+
+        // Has a return type?
+        let mut ret = None;
+        if let Some(TokenK::Arrow) = self.peek_kind(0) {
+            self.eat(TokenK::Arrow);
+
+            let typath = self.parse_path()?;
+            let tyspan = typath.span;
+            let tyk = TyK::Path(Ptr::new(typath));
+            let ty = Ty::new(tyk, tyspan);
+            span = Span::new(span.bgn, tyspan.end);
+            ret = Some(ty);
+        }
+
+        Some(FnSig {
+            params,
+            ret,
+            span,
+        })
+    }
+
+    /// Parses a function declaration
+    /// 
+    /// 
     fn parse_function_decl(&self) -> Option<Expr> {
         dbg_print!(green, "PARSE FUNCTION DECL\n");
         let kspan = self.token().span;
 
         self.eat(TokenK::KeyFn);
-        let path = self.sub_parse_path().expect("expected function identifier");
-        self.advance();
+        let path = self.parse_path().expect("expected function identifier");
 
-        // processes params, leaves us just after the RParen
-        let params = self.sub_parse_function_params()?;
-        self.advance();
+        let sig = self.parse_function_sig()?;
 
-        let sigspan = Span::new(kspan.bgn, self.token().span.bgn);
-        let sig = FnSig::new(params, None, sigspan);
-
-        let body = self.sub_parse_block()?;
-        let span = Span::new(sigspan.bgn, body.span.end);
+        let body = self.parse_block()?;
+        let span = Span::new(sig.span.bgn, body.span.end);
         
         println!("\n\nPARSED FUNCTION BLOCK\n\n");
 
@@ -981,6 +1177,43 @@ impl Parser {
         Some(Expr::new(span, exprk))
     }
     
+    fn parse_branch(&self) -> Option<Expr> {
+        dbg_print!(green, "PARSE BRANCH\n");
+        let span = self.token().span;
+
+        self.eat(TokenK::KeyIf);
+
+        let pred = self.parse_expression(0).expect("expected an expression to predicate If block");
+        let block = self.parse_block()?;
+
+        let span = Span::new(span.bgn, block.span.end);
+
+        let mut else_block = None;
+
+        println!("PEEK KIND: {:#?}", self.peek_kind(0));
+        if Some(TokenK::KeyElse) == self.peek_kind(0) {
+            self.eat(TokenK::KeyElse);
+            let valid_else_block = self.parse_block()?;
+            let span = Span::new(span.bgn, valid_else_block.span.end);
+            else_block = Some(valid_else_block);
+        }
+        println!("CUR TOK: {:?}", self.token());
+
+        Some(Expr::new(span,
+            ExprK::If(
+                Ptr::new(pred),
+                Ptr::new(Expr::new(block.span, ExprK::Blk(Ptr::new(block)))),
+                else_block.map(|b| { 
+                    Ptr::new(
+                        Expr::new(
+                            b.span, ExprK::Blk(Ptr::new(b))
+                        )
+                    )
+                })
+            )
+        ))
+    }
+
     fn parse_null_denotation(&self, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE NULL DENOTATION ");
         dbg_print!("{:?}\n", self.token());
@@ -991,10 +1224,10 @@ impl Parser {
         match kind {
             TokenK::LitInt |
             TokenK::LitFloat => {
-                self.parse_literal(token)
+                self.parse_literal()
             },
             TokenK::LitIdent => {
-                let path = self.sub_parse_path().expect("expected valid path in ident");
+                let path = self.parse_path().expect("expected valid path in ident");
                 let span = path.span;
                 let exprk = ExprK::Path(Ptr::new(path));
                 Some(Expr::new(span, exprk))
@@ -1004,7 +1237,7 @@ impl Parser {
                 self.parse_prefix_op(token)
             },
             TokenK::LBrace => {
-                let blk = self.sub_parse_block()?;
+                let blk = self.parse_block()?;
                 let span = blk.span;
                 let exprk = ExprK::Blk(Ptr::new(blk));
                 Some(Expr::new(span, exprk))
@@ -1020,6 +1253,9 @@ impl Parser {
             },
             TokenK::KeyFn => {
                 self.parse_function_decl()
+            },
+            TokenK::KeyIf => {
+                self.parse_branch()
             },
             TokenK::Eof => {
                 None
@@ -1089,7 +1325,6 @@ impl Parse {
         };
         
         parse.peel_tokens();
-
         parse.build_tree()
     }
 
@@ -1138,9 +1373,6 @@ impl Parse {
                 self.match_numeric(chars.len(), &mut buff);
             }
         }
-
-        println!("{buff:?}");
-        println!("{}", self);
     }
 
     fn match_numeric(&mut self, curs: usize, buff: &mut Vec<char>) -> bool {
@@ -1192,6 +1424,8 @@ impl Parse {
                     _ => None,
                 }
             },
+            Some('>') => Some(Token::new(tspan, TokenK::OpGreater)),
+            Some('<') => Some(Token::new(tspan, TokenK::OpLess)),
             _ => {
                 None
             }
@@ -1200,6 +1434,7 @@ impl Parse {
         if token.is_none() {
             token = match string_repr.as_str() {
                 TOK_IF      => Some(Token::new(tspan, TokenK::KeyIf)),
+                TOK_ELSE    => Some(Token::new(tspan, TokenK::KeyElse)),
                 TOK_FN      => Some(Token::new(tspan, TokenK::KeyFn)),
                 TOK_LET     => Some(Token::new(tspan, TokenK::KeyLet)),
                 TOK_MUT     => Some(Token::new(tspan, TokenK::KeyMut)),
@@ -1317,13 +1552,45 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_parser() {
+    fn test_parse_expressions() {
         let source = include_str!("example/expr.rs");
         let expr = Parse::parse(source).expect("expected ast");
         let code = Emit::emit(&expr);
         let result = Eval::eval(&expr);
         
         //println!("{:#?}", expr);
+        println!("{}", code);
+        println!("{}", source);
+        println!("{}", result);
+    }
+
+    #[test]
+    fn test_parse_branching() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+
+        let source = include_str!("example/foo.rs");
+        let expr = Parse::parse(source).expect("expected ast");
+
+        let code = Emit::emit(&expr);
+        let result = Eval::eval(&expr);
+        
+        //println!("{:#?}", expr);
+        println!("{}", code);
+        println!("{}", source);
+        println!("{}", result);
+    }
+
+    #[test]
+    fn test_parse_nesting() {
+        std::env::set_var("RUST_BACKTRACE", "1");
+
+        let source = include_str!("example/nest.rs");
+        let expr = Parse::parse(source).expect("expected ast");
+
+        let code = Emit::emit(&expr);
+        let result = Eval::eval(&expr);
+        
+        println!("{:#?}", expr);
         println!("{}", code);
         println!("{}", source);
         println!("{}", result);

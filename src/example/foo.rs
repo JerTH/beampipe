@@ -1,12 +1,20 @@
+
+
 fn foo(a: usize, b: usize) -> usize {
-    if bar(a > b) {
+    if a > b {
         b
     } else {
         a
     }
 }
 
-fn bar(maybe_yes: bool) -> bool {
-    let maybe_no = !maybe_yes;
-    return maybe_no
+fn bar(was: bool, were: bool) -> usize {
+    if was {
+        if were {
+            42
+        } else {
+            1234
+        }
+    }
+    1337
 }
