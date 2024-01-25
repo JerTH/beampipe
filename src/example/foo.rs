@@ -18,3 +18,9 @@ fn bar(was: bool, were: bool) -> usize {
     }
     1337
 }
+
+fn main() {
+    let a = 3;
+    let b = 7;
+    a * a + b * b
+}

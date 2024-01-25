@@ -11,8 +11,6 @@ use std::{
     },
 };
 
-use crate::tokens::Block;
-
 type PtrType<T> = Box<T>;
 
 #[derive(Clone)]
@@ -221,6 +219,12 @@ pub struct Lit {
 pub struct Ident {
     pub name: Sym,
     pub span: Span,
+}
+
+impl Ident {
+    pub fn as_string(&self) -> String {
+        self.name.as_string()
+    }
 }
 
 impl Display for Ident {
