@@ -144,19 +144,25 @@ impl Path {
     }
 }
 
-impl Into<String> for &Ptr<Path> {
-    fn into(self) -> String {
-        self.list
-            .iter()
-            .fold(String::new(), |acc, x| format!("{}::{}", acc, x))
+impl From<&Ptr<Path>> for String {
+    fn from(value: &Ptr<Path>) -> Self {
+        String::from(&*value.0)
     }
 }
 
-impl Into<String> for &Path {
-    fn into(self) -> String {
-        self.list
+impl From<Ptr<Path>> for String {
+    fn from(value: Ptr<Path>) -> Self {
+        String::from(&*value.0)
+    }
+}
+
+impl From<&Path> for String {
+    fn from(value: &Path) -> Self {
+        value.list
             .iter()
             .fold(String::new(), |acc, x| format!("{}::{}", acc, x))
+            .trim_start_matches("::")
+            .into()
     }
 }
 
@@ -199,6 +205,22 @@ impl Blk {
             astid: astid!(),
             list,
             span,
+        }
+    }
+}
+
+pub struct Call {
+    pub astid: AstId,
+    pub path: Path,
+    pub args: Vec<Expr>,
+}
+
+impl Call {
+    pub fn new(path: Path, args: Vec<Expr>, span: Span) -> Self {
+        Call {
+            astid: astid!(),
+            path,
+            args
         }
     }
 }
@@ -265,6 +287,23 @@ impl Expr {
 }
 
 #[derive(Debug, Clone)]
+pub struct FnArg {
+    pub id: AstId,
+    pub expr: Expr,
+    pub span: Span,
+}
+
+impl FnArg {
+    pub fn new(expr: Expr, span: Span) -> Self {
+        FnArg {
+            id: astid!(),
+            expr,
+            span
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct FnParam {
     pub id: AstId,
     pub ty: Ty,
@@ -301,11 +340,11 @@ pub struct Fn {
     pub id: AstId,
     pub path: Path,
     pub sig: FnSig,
-    pub body: Ptr<Blk>,
+    pub body: Ptr<Expr>,
 }
 
 impl Fn {
-    pub fn new(path: Path, sig: FnSig, body: Blk) -> Self {
+    pub fn new(path: Path, sig: FnSig, body: Expr) -> Self {
         Self {
             id: astid!(),
             path,
@@ -363,6 +402,7 @@ pub enum ExprK {
     Path(Ptr<Path>),
     Fn(Ptr<Fn>),
     If(Ptr<Expr>, Ptr<Expr>, Option<Ptr<Expr>>),
+    Call(Ptr<Expr>, Vec<Ptr<FnArg>>),
 }
 
 impl ExprK {
@@ -391,12 +431,16 @@ impl SymTable {
 
     pub fn make<'a, S: Into<String>>(&self, string: S) -> Sym {
         let string: String = string.into();
-
+        
         match self.table.write() {
             Ok(mut guard) => {
                 let key = SymTable::hash_str(string.as_str());
+                if let Some(item) = guard.get(&key) {
+                    
+                } else {
+                    guard.insert(key, string.into());
+                }
 
-                guard.insert(key, string.into());
                 Sym {
                     index: key,
                     table: self.clone(),
@@ -509,10 +553,10 @@ impl Debug for Sym {
             Ok(table) => {
                 write!(
                     f,
-                    "[SYM:{}]",
+                    "[SYM:{:?}]",
                     table
-                        .get(&self.index)
-                        .unwrap_or(&String::from("unknown symbol"))
+                        .get_key_value(&self.index)
+                        .unwrap_or((&0, &String::from("unknown symbol")))
                 )
             }
             Err(_) => {

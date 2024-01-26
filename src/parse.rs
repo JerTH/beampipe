@@ -1,6 +1,6 @@
 use std::{fmt::Display, cell::Cell};
 
-use crate::{token::{Token, TokenK, self}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable}};
+use crate::{token::{Token, TokenK, self}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg}};
 
 
 
@@ -156,6 +156,8 @@ impl Parse {
                 token::TOK_WHILE   => Some(Token::new(tspan, TokenK::KeyWhile)),
                 token::TOK_LOOP    => Some(Token::new(tspan, TokenK::KeyLoop)),
                 token::TOK_RET     => Some(Token::new(tspan, TokenK::KeyReturn)),
+                token::TOK_TRUE    => Some(Token::new(tspan, TokenK::LitBool)),
+                token::TOK_FALSE   => Some(Token::new(tspan, TokenK::LitBool)),
                 
                 token::TOK_USIZE   => Some(Token::new(tspan, TokenK::Ty)),
                 token::TOK_ISIZE   => Some(Token::new(tspan, TokenK::Ty)),
@@ -402,12 +404,13 @@ impl Parser {
     fn parse_expression(&self, right_binding: usize) -> Option<Expr> {
         dbg_print!(green, "PARSE EXPRESSION "); 
         dbg_print!("{:?}\n", self.token());
+        dbg_print!(push, "");
 
         match self.token().kind {
             TokenK::Eof |
-            TokenK::RBrace => {
-                return None
-            }
+            //TokenK::RBrace => {
+            //    return None
+            //}
             _ => {}
         }
         
@@ -418,7 +421,6 @@ impl Parser {
         // binding power of the following token, we process successive infix and suffix
         // tokens with the left denotation method. If the token is not left associative,
         // we return the null associative expression already stored in `left`
-        dbg_print!(push, "");
         while right_binding < self.token().infix_binding().left() {
             dbg_print!(blue, "LEFT ASSOCIATIVE LOOP\n"); 
             left = self.parse_left_denotation(left.clone(), self.token()).unwrap_or(left);
@@ -588,11 +590,12 @@ impl Parser {
         let kind = match kind {
             TokenK::LitInt => LitK::Int,
             TokenK::LitFloat => LitK::Float,
+            TokenK::LitBool => LitK::Bool,
             _ => {
                 panic!("literal") // early return - not a literal
             }
         };
-
+        
         let symbol = self.make_symbol(&token);
         let literal = Lit { symbol, kind };
         
@@ -626,7 +629,8 @@ impl Parser {
 
     fn parse_block(&self) -> Option<Blk> {
         dbg_print!(green, "PARSE BLOCK\n");
-        dbg_print!(push, "");
+        let mut span = self.token().span;
+
         self.eat(TokenK::LBrace);
 
         let mut expressions = Vec::new();
@@ -634,19 +638,47 @@ impl Parser {
         while let Some(expr) = self.parse_expression(0) {
             expressions.push(expr);
         }
-        
-        let span = Span::new(
-            expressions.first().unwrap().span.bgn,
-            expressions.last().unwrap().span.end
-        );
 
         self.eat(TokenK::RBrace);
         
+        if expressions.is_empty() {
+            span = Span::new(span.bgn, self.token().span.end);
+        } else {
+            span = Span::new(
+                expressions.first().unwrap().span.bgn,
+                expressions.last().unwrap().span.end
+            );
+        }
+
         dbg_print!(red, "RETURN BLOCK\n");
-        dbg_print!(pop, "");
         Some(Blk::new(expressions, span))
     }
     
+    fn parse_function_args(&self) -> Option<Vec<FnArg>> {
+        dbg_print!(green, "PARSE FUNCTION CALL ARGS\n");
+
+        self.eat(TokenK::LParen);
+        let mut args = Vec::new();
+
+        while self.token().kind != TokenK::RParen {
+            dbg_print!(blue, "FUNCTION ARG LOOP\n");
+            match self.token().kind {
+                TokenK::Comma => {
+                    self.advance();
+                    continue;
+                },
+                _t => {
+                    let expr= self.parse_expression(0)?;
+                    let span = expr.span;
+                    args.push(FnArg::new(expr, span))
+                }
+            }
+        }
+        self.eat(TokenK::RParen);
+        
+        Some(args)
+    }
+
     /// Parses a functions parameters enclosed in parens.
     /// 
     /// After parsing the token cursor will be pointing to just after the right paren
@@ -726,13 +758,32 @@ impl Parser {
         let sig = self.parse_function_sig()?;
 
         let body = self.parse_block()?;
-        let span = Span::new(kspan.bgn, body.span.end);
+        let body_expr = Expr::new(body.span, ExprK::Blk(Ptr::new(body)));
         
-        let func = Fn::new(path, sig, body);
+        let span = Span::new(kspan.bgn, body_expr.span.end);
+        let func = Fn::new(path, sig, body_expr);
         let exprk = ExprK::Fn(Ptr::new(func));
         Some(Expr::new(span, exprk))
     }
     
+    fn parse_function_call(&self) -> Option<Expr> {
+        dbg_print!(green, "PARSE FUNCTION CALL\n");
+
+        let path = self.parse_path().expect("expected valid path in ident");
+        let path_span = path.span;
+        
+        let args = self.parse_function_args()?;
+        let args_span = Span::new(path_span.end, args.last().map(|f| f.span.end).unwrap_or(path_span.end));
+        let args = args.into_iter().map(|fnarg| Ptr::new(fnarg)).collect();
+
+        let path_exprk = ExprK::Path(Ptr::new(path));
+        let call_span = Span::new(path_span.bgn, args_span.end);
+        let exprk = ExprK::Call(Ptr::new(Expr::new(call_span, path_exprk)), args);
+        
+        
+        Some(Expr::new(call_span, exprk))
+    }
+
     fn parse_branch(&self) -> Option<Expr> {
         dbg_print!(green, "PARSE BRANCH\n");
         let span = self.token().span;
@@ -783,15 +834,20 @@ impl Parser {
         let kind = token.kind;
 
         match kind {
+            TokenK::LitBool |
             TokenK::LitInt |
             TokenK::LitFloat => {
                 self.parse_literal()
             },
             TokenK::LitIdent => {
-                let path = self.parse_path().expect("expected valid path in ident");
-                let span = path.span;
-                let exprk = ExprK::Path(Ptr::new(path));
-                Some(Expr::new(span, exprk))
+                if self.peek_kind(1) == Some(TokenK::LParen) {
+                    Some(self.parse_function_call()?)
+                } else {
+                    let path = self.parse_path().expect("expected valid path in ident");
+                    let span = path.span;
+                    let exprk = ExprK::Path(Ptr::new(path));
+                    Some(Expr::new(span, exprk))
+                }
             }
             TokenK::OpBang |
             TokenK::OpSub => {

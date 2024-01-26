@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use crate::ast::{Expr, Span};
 
-
 mod token_strs {
     pub const TOK_IF: &'static str = "if";
     pub const TOK_ELSE: &'static str = "else";
@@ -13,6 +12,8 @@ mod token_strs {
     pub const TOK_WHILE: &'static str = "while";
     pub const TOK_LOOP: &'static str = "loop";
     pub const TOK_RET: &'static str = "return";
+    pub const TOK_TRUE: &'static str = "true";
+    pub const TOK_FALSE: &'static str = "false";
 
     pub const TOK_L_PAREN: &'static str = "(";
     pub const TOK_R_PAREN: &'static str = ")";
@@ -45,7 +46,6 @@ mod token_strs {
 }
 pub use token_strs::*;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TokenK {
     KeyFn,
@@ -60,9 +60,10 @@ pub enum TokenK {
     LitIdent,
     LitInt,
     LitFloat,
+    LitBool,
 
     Ty,
-    
+
     LParen,
     RParen,
     LBrack,
@@ -85,7 +86,7 @@ pub enum TokenK {
     ColCol,
     OpBang,
     OpEq,
-    
+
     // comparison
     EqEq,
     OpLess,
@@ -104,49 +105,43 @@ pub struct Token {
     pub span: Span,
 }
 
-
 impl Token {
     pub fn new(span: Span, kind: TokenK) -> Self {
-        Self {
-            kind,
-            span,
-        }
+        Self { kind, span }
     }
 
     pub fn prefix_binding(&self) -> ((), usize) {
         match self.kind {
-            TokenK::OpAdd   => ((), 50),
-            TokenK::OpSub   => ((), 50),
-            _               => ((), 00)
+            TokenK::OpAdd => ((), 50),
+            TokenK::OpSub => ((), 50),
+            _ => ((), 00),
         }
     }
-    
+
     pub fn infix_binding(&self) -> (usize, usize) {
         match self.kind {
-            TokenK::OpAdd     => (50, 50),
-            TokenK::OpSub     => (50, 50),
-            TokenK::OpMul     => (60, 60),
-            TokenK::OpDiv     => (60, 60),
-            TokenK::OpEq      => (90, 90),
-            TokenK::Dot       => (80, 80),
-            TokenK::ColCol    => (90, 90),
-            TokenK::OpLess    => (30, 30),
+            TokenK::OpAdd => (50, 50),
+            TokenK::OpSub => (50, 50),
+            TokenK::OpMul => (60, 60),
+            TokenK::OpDiv => (60, 60),
+            TokenK::OpEq => (90, 90),
+            TokenK::Dot => (80, 80),
+            TokenK::ColCol => (90, 90),
+            TokenK::OpLess => (30, 30),
             TokenK::OpGreater => (30, 30),
-            _                 => (00, 00),
+            _ => (00, 00),
         }
     }
-    
+
     pub fn postfix_binding(&self) -> (usize, ()) {
         match self.kind {
-            _               => (0, ())
+            _ => (0, ()),
         }
     }
-    
+
     pub fn null_denotation(&self) -> fn() -> Expr {
         match self.kind {
-            _ => {
-                || { Expr::empty() }
-            }
+            _ => || Expr::empty(),
         }
     }
 }

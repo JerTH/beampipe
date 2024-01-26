@@ -4,7 +4,7 @@ fn foo(a: usize, b: usize) -> usize {
     if a > b {
         b
     } else {
-        a
+        a + b
     }
 }
 
@@ -20,7 +20,5 @@ fn bar(was: bool, were: bool) -> usize {
 }
 
 fn main() {
-    let a = 3;
-    let b = 7;
-    a * a + b * b
+    bar(true, false) + foo(1, 3)
 }

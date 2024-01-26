@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap, str::FromStr, fmt::Display, cell::RefCell};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, ops::{Add, Deref, Div, Mul, Sub}, str::FromStr};
 
 use crate::ast::{*, Ident};
 
@@ -13,6 +13,84 @@ pub enum Value {
     Float(f64),
     Ident(Ident),
     Bool(bool),
+}
+
+impl Add for Value {
+    type Output = Value;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Sub for Value {
+    type Output = Value;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Mul for Value {
+    type Output = Value;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Div for Value {
+    type Output = Value;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Value {
+    fn lt(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Bool(a < b),
+            (Value::Float(a), Value::Float(b)) => Value::Bool(a < b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+
+    fn gt(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Bool(a > b),
+            (Value::Float(a), Value::Float(b)) => Value::Bool(a > b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
 }
 
 impl Display for Value {
@@ -42,8 +120,8 @@ impl FromStr for Value {
 }
 
 pub struct Eval {
-    vars: RefCell<HashMap<Ident, Value>>,
-    func: RefCell<HashMap<Path, Expr>>,
+    vars: RefCell<HashMap<String, Value>>,
+    func: RefCell<HashMap<String, Ptr<Fn>>>,
     symt: RefCell<SymTable>,
 }
 
@@ -66,46 +144,40 @@ impl Eval {
             ExprK::Empty => {
                 return Value::None
             },
-
             ExprK::Semi(expr) => {
                 self.eval_r(expr)
             },
-
             ExprK::Local(_) => todo!(),
             ExprK::Item(_item) => {
                 todo!()
             },
-
             ExprK::Lit(lit) => {
-                let value = &lit.symbol.parse::<Value>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "integer"));
-                match (&lit.kind, value) {
-                    (LitK::Int, Value::Int(value)) => return Value::Int(*value),
-                    (LitK::Float, Value::Float(value)) => return Value::Float(*value),
-                    (lit, value) => {
-                        err_is_not(value, format!("{:?}", &lit));
-                    }
+                //let value = &lit.symbol.parse::<Value>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "integer"));
+                
+                match &lit.kind {
+                    LitK::Int => return Value::Int(lit.symbol.parse::<i64>().expect("expected i64 to parse")),
+                    LitK::Float => return Value::Float(lit.symbol.parse::<f64>().expect("expected i64 to parse")),
+                    LitK::Bool => return Value::Bool(lit.symbol.parse::<bool>().expect("expected i64 to parse")),
                 }
             },
-
             ExprK::Blk(block) => {
                 let mut returns = Value::None;
                 for expr in &block.list {
                     returns = self.eval_r(expr);
                 }
                 if let Value::Ident(ident) = &returns {
-                    if let Some(value) = self.vars.borrow().get(&ident) {
+                    if let Some(value) = self.vars.borrow().get(&ident.as_string()) {
                         returns = value.clone()
                     }
                 }
                 returns
             },
-
             ExprK::Assign(lhs, rhs) => {
                 match (self.eval_r(lhs), self.eval_r(rhs)) {
                     (Value::Ident(ident), value) => {
                         self.vars
                             .borrow_mut()
-                            .entry(ident)
+                            .entry(ident.as_string())
                             .and_modify(|v| *v = value.clone())
                             .or_insert(value);
                     },
@@ -115,130 +187,71 @@ impl Eval {
                 }
                 return Value::None;
             },
-
             ExprK::BinOp(op, lhs, rhs) => {
                 match op.kind {
                     BinOpK::Add => {
-                        match (self.eval_r(lhs), self.eval_r(rhs)) {
-                            (Value::Int(lhs), Value::Int(rhs)) => {
-                                return Value::Int(lhs + rhs);
-                            },
-                            (Value::Float(lhs), Value::Float(rhs)) => {
-                                return Value::Float(lhs + rhs);
-                            },
-                            (lhs, rhs) => {
-                                err_op_mismatch("add", lhs, rhs);
-                            }
-                        }
+                        self.eval_r(lhs).add(self.eval_r(rhs))
                     },
                     BinOpK::Sub => {
-                        match (self.eval_r(lhs), self.eval_r(rhs)) {
-                            (Value::Int(lhs), Value::Int(rhs)) => {
-                                return Value::Int(lhs - rhs);
-                            },
-                            (Value::Float(lhs), Value::Float(rhs)) => {
-                                return Value::Float(lhs - rhs);
-                            },
-                            (lhs, rhs) => {
-                                err_op_mismatch("subtract", lhs, rhs);
-                            }
-                        }
+                        self.eval_r(lhs).sub(self.eval_r(rhs))
                     },
                     BinOpK::Div => {
-                        match (self.eval_r(lhs), self.eval_r(rhs)) {
-                            (Value::Int(lhs), Value::Int(rhs)) => {
-                                return Value::Int(lhs / rhs);
-                            },
-                            (Value::Float(lhs), Value::Float(rhs)) => {
-                                return Value::Float(lhs / rhs);
-                            },
-                            (lhs, rhs) => {
-                                err_op_mismatch("divide", lhs, rhs);
-                            }
-                        }
+                        self.eval_r(lhs).div(self.eval_r(rhs))
                     },
                     BinOpK::Mul => {
-                        match (self.eval_r(lhs), self.eval_r(rhs)) {
-                            (Value::Int(lhs), Value::Int(rhs)) => {
-                                return Value::Int(lhs * rhs);
-                            },
-                            (Value::Float(lhs), Value::Float(rhs)) => {
-                                return Value::Float(lhs * rhs);
-                            },
-                            (lhs, rhs) => {
-                                err_op_mismatch("multiply", lhs, rhs);
-                            }
-                        }
+                        self.eval_r(lhs).mul(self.eval_r(rhs))
                     },
                     BinOpK::CmpLess => {
-                        match (self.eval_r(lhs), self.eval_r(rhs)) {
-                            (Value::Int(lhs), Value::Int(rhs)) => {
-                                return Value::Bool(lhs < rhs);
-                            },
-                            (Value::Float(lhs), Value::Float(rhs)) => {
-                                return Value::Bool(lhs < rhs);
-                            },
-                            (lhs, rhs) => {
-                                err_op_mismatch("less than", lhs, rhs);
-                            }
-                        }
+                        self.eval_r(lhs).gt(self.eval_r(rhs))
                     },
                     BinOpK::CmpGreater => {
-                        match (self.eval_r(lhs), self.eval_r(rhs)) {
-                            (Value::Int(lhs), Value::Int(rhs)) => {
-                                return Value::Bool(lhs > rhs);
-                            },
-                            (Value::Float(lhs), Value::Float(rhs)) => {
-                                return Value::Bool(lhs > rhs);
-                            },
-                            (lhs, rhs) => {
-                                err_op_mismatch("greater than", lhs, rhs);
-                            }
-                        }
+                        self.eval_r(lhs).gt(self.eval_r(rhs))
                     },
                 }
             },
-            
             ExprK::AssignOp(_, _, _) => {
                 todo!()
             },
-
             ExprK::Path(path) => {
-                let full_name = path.list.iter().fold(String::new(), |acc, x| {
+                let full_name: String = path.list.iter().fold(String::new(), |acc, x| {
                     format!("{}::{}", acc, x)
-                });
+                })
+                .trim_start_matches("::")
+                .into();
+
                 let ident = Ident {
                     name: self.symt.borrow().make(full_name),
                     span: Span::none(),
                 };
-                if let Some(value) = self.vars.borrow().get(&ident) {
+
+                if let Some(value) = self.vars.borrow().get(&ident.as_string()) {
                     return value.clone()
                 } else {
                     return Value::Ident(ident)
                 }
             },
-
             ExprK::Fn(func) => {
                 let path = func.path.clone();
-                let body = func.body.clone();
-                let expr = Expr::new(body.span, ExprK::Blk(body));
                 self.func
                     .borrow_mut()
-                    .entry(path.clone())
+                    .entry(String::from(&path))
                     .and_modify(|_| {
                         panic!("multiple declarations of {:?}", path)
                     })
-                    .or_insert(expr);
-
+                    .or_insert(func.clone());
+                
+                // main entry-point for eval
                 if let Some(fn_path_name) = path.list.last() {
                     if fn_path_name.as_string().as_str() == "main" {
-                        return self.call_fn(path)
+                        let path_ptr = Ptr::new(path);
+
+                        let main_args = Vec::new();
+                        return self.call_fn(&path_ptr, &main_args);
                     }
                 }
                 
                 Value::None
             },
-
             ExprK::If(cond, then, else_then) => {
                 match self.eval_r(cond) {
                     Value::Bool(true) => {
@@ -256,11 +269,33 @@ impl Eval {
                     }
                 }
             },
+            ExprK::Call(name, args) => {
+                match name.kind {
+                    ExprK::Path(ref fnpath) => {
+                        self.call_fn(fnpath, args)
+                    }
+                    _ => {
+                        panic!("fn name is not a path");
+                    }
+                }
+            },
         }
     }
 
-    fn call_fn(&self, func: Path) -> Value {
-        self.eval_r(self.func.borrow().get(&func).expect("call_fn: function doesn't exist"))
+    fn call_fn(&self, func: &Ptr<Path>, args: &Vec<Ptr<FnArg>>) -> Value {
+        let func_path_string = String::from(func);
+
+        if let Some(func) = self.func.borrow().get(&func_path_string) {
+            for (param, arg) in func.sig.params.iter().zip(args.iter()) {
+                let resolved_param = self.eval_r(&arg.expr);
+                self.vars.borrow_mut().insert(param.ident.as_string(), resolved_param);
+            }
+            return self.eval_r(&func.body)
+        } else {
+            let funcs_clone = self.func.borrow().clone();
+            let funcs = funcs_clone.iter().map(|f| f.0).collect::<Vec<_>>();
+            panic!("undeclared fn\n{:#?}\n{:#?}\n", func, funcs);
+        }
     }
 }
 
@@ -313,6 +348,7 @@ pub enum Ir {
     // A symbol - usually preceeds a function def
     Symbol(Sym),
     Return,
+    Call(Sym),
 }
 
 impl PartialEq for Ir {
@@ -363,6 +399,7 @@ impl Display for Ir {
             Ir::CmpLess => write!(f, "LT"),
             Ir::CmpGreater => write!(f, "GT"),
             Ir::Return => write!(f, "RET"),
+            Ir::Call(sym) => write!(f, "CALL({})", sym),
         }
     }
 }
@@ -434,7 +471,7 @@ impl Emit {
             ExprK::Semi(expr) => {
                 self.emit_r(expr)
             },
-
+            
             ExprK::Local(_) => todo!(),
             ExprK::Item(_) => todo!(),
             ExprK::Lit(lit) => {
@@ -494,10 +531,14 @@ impl Emit {
                 let symbol = self.syms.make(path);
                 self.code.emit(Ir::Symbol(symbol));
 
-                let body = &func.body;
-                for expr in &body.list {
-                    self.emit_r(expr);
+                if let ExprK::Blk(body) = &func.body.kind {
+                    for expr in &body.list {
+                        self.emit_r(expr);
+                    }
+                } else {
+                    panic!("fn body is not a code block")
                 }
+
                 self.code.emit(Ir::Return);
             },
             
@@ -524,6 +565,18 @@ impl Emit {
 
                 self.code.patch(Ir::JumpFalse(Marker::Offset(cond_jump_offset)), cond_location, Ir::JumpFalse(Marker::Temporary));
                 //todo!("codegen for if-else statement");
+            },
+            ExprK::Call(path, args) => {
+                match &path.kind {
+                    ExprK::Path(fnpath) => {
+                        let fn_path_string = String::from(fnpath);
+                        let sym = self.syms.make(fn_path_string);
+                        self.code.emit(Ir::Call(sym));
+                    },
+                    _ => {
+                        panic!("call path is not a path");
+                    }
+                }
             },
         }
     }
