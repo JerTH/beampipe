@@ -372,11 +372,11 @@ impl Parser {
         let mut expressions = Vec::new();
 
         while let Some(expr) = self.parse_expression(0) {
-            expressions.push(expr);
+            expressions.push(Ptr::new(expr));
         }
-
+        
         let blk = Blk::new(expressions, Span::none());
-        let block = ExprK::Blk(Ptr::new(blk));
+        let block = ExprK::Block(Ptr::new(blk));
         self.astout = Some(Expr::new(Span::none(), block));
 
         //self.astout = self.parse_expression(0);
@@ -425,11 +425,7 @@ impl Parser {
             dbg_print!(blue, "LEFT ASSOCIATIVE LOOP\n"); 
             left = self.parse_left_denotation(left.clone(), self.token()).unwrap_or(left);
         }
-
-        if self.peek_kind(0) == Some(TokenK::Semi) {
-            self.eat(TokenK::Semi);
-        }
-
+        
         dbg_print!(pop, "");
         dbg_print!(red, "RETURN EXPR\n");
         Some(left)
@@ -595,7 +591,7 @@ impl Parser {
                 panic!("literal") // early return - not a literal
             }
         };
-        
+
         let symbol = self.make_symbol(&token);
         let literal = Lit { symbol, kind };
         
@@ -635,10 +631,23 @@ impl Parser {
 
         let mut expressions = Vec::new();
 
-        while let Some(expr) = self.parse_expression(0) {
-            expressions.push(expr);
-        }
+        while let Some(mut expr) = self.parse_expression(0) {
 
+            // Is it a semi-colon postfix expression?
+            if self.peek_kind(0) == Some(TokenK::Semi) {
+                let span = expr.span;
+                expr = Expr {
+                    astid: expr.astid,
+                    kind: ExprK::Semi(Ptr::new(expr)),
+                    span: Span::new(span.bgn, self.token().span.end),
+                };
+
+                self.eat(TokenK::Semi);
+            }
+            
+            expressions.push(Ptr::new(expr));
+        }
+        
         self.eat(TokenK::RBrace);
         
         if expressions.is_empty() {
@@ -758,7 +767,7 @@ impl Parser {
         let sig = self.parse_function_sig()?;
 
         let body = self.parse_block()?;
-        let body_expr = Expr::new(body.span, ExprK::Blk(Ptr::new(body)));
+        let body_expr = Expr::new(body.span, ExprK::Block(Ptr::new(body)));
         
         let span = Span::new(kspan.bgn, body_expr.span.end);
         let func = Fn::new(path, sig, body_expr);
@@ -807,11 +816,11 @@ impl Parser {
         Some(Expr::new(span,
             ExprK::If(
                 Ptr::new(pred),
-                Ptr::new(Expr::new(block.span, ExprK::Blk(Ptr::new(block)))),
+                Ptr::new(Expr::new(block.span, ExprK::Block(Ptr::new(block)))),
                 else_block.map(|b| { 
                     Ptr::new(
                         Expr::new(
-                            b.span, ExprK::Blk(Ptr::new(b))
+                            b.span, ExprK::Block(Ptr::new(b))
                         )
                     )
                 })
@@ -856,7 +865,7 @@ impl Parser {
             TokenK::LBrace => {
                 let blk = self.parse_block()?;
                 let span = blk.span;
-                let exprk = ExprK::Blk(Ptr::new(blk));
+                let exprk = ExprK::Block(Ptr::new(blk));
                 Some(Expr::new(span, exprk))
             },
             TokenK::RBrace => {

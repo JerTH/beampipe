@@ -20,5 +20,5 @@ fn bar(was: bool, were: bool) -> usize {
 }
 
 fn main() {
-    bar(true, false) + foo(1, 3)
+    bar(true, false) + foo(1, 3);
 }

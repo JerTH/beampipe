@@ -50,8 +50,8 @@ macro_rules! dbg_print_color {
 macro_rules! dbg_print_indent {
     ($($t:tt)*) => {
         #[cfg(debug_assertions)] {
-            print!("{}", "  ".repeat(crate::macros::DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
-            print!($($t)*);
+            //print!("{}", "  ".repeat(crate::macros::DBG_INDENT.load(std::sync::atomic::Ordering::SeqCst)));
+            //print!($($t)*);
         }
     };
 }

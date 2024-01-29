@@ -195,18 +195,31 @@ pub struct Local {
 #[derive(Debug, Clone)]
 pub struct Blk {
     pub astid: AstId,
-    pub list: Vec<Expr>,
+    pub list: Vec<Ptr<Expr>>,
     pub span: Span,
 }
 
 impl Blk {
-    pub fn new(list: Vec<Expr>, span: Span) -> Self {
+    pub fn new(list: Vec<Ptr<Expr>>, span: Span) -> Self {
         Blk {
             astid: astid!(),
             list,
             span,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Loop {
+    pub astid: AstId,
+    pub kind: LoopK,
+}
+
+#[derive(Debug, Clone)]
+pub enum LoopK {
+    For(Ptr<Expr>, Ptr<Blk>),
+    While(Ptr<Expr>, Ptr<Blk>),
+    Loop(Option<Ident>, Ptr<Blk>),
 }
 
 pub struct Call {
@@ -395,7 +408,8 @@ pub enum ExprK {
     Semi(Ptr<Expr>), // semicolon terminated expression
     Local(Ptr<Local>),
     Lit(Ptr<Lit>),
-    Blk(Ptr<Blk>),
+    Block(Ptr<Blk>),
+    Loop(Ptr<Loop>),
     Assign(Ptr<Expr>, Ptr<Expr>),
     BinOp(BinOp, Ptr<Expr>, Ptr<Expr>),
     AssignOp(Ptr<BinOp>, Ptr<Expr>, Ptr<Expr>),

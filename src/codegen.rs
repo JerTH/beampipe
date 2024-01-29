@@ -145,22 +145,21 @@ impl Eval {
                 return Value::None
             },
             ExprK::Semi(expr) => {
-                self.eval_r(expr)
+                self.eval_r(expr);
+                Value::None
             },
             ExprK::Local(_) => todo!(),
             ExprK::Item(_item) => {
                 todo!()
             },
             ExprK::Lit(lit) => {
-                //let value = &lit.symbol.parse::<Value>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "integer"));
-                
                 match &lit.kind {
                     LitK::Int => return Value::Int(lit.symbol.parse::<i64>().expect("expected i64 to parse")),
-                    LitK::Float => return Value::Float(lit.symbol.parse::<f64>().expect("expected i64 to parse")),
-                    LitK::Bool => return Value::Bool(lit.symbol.parse::<bool>().expect("expected i64 to parse")),
+                    LitK::Float => return Value::Float(lit.symbol.parse::<f64>().expect("expected f64 to parse")),
+                    LitK::Bool => return Value::Bool(lit.symbol.parse::<bool>().expect("expected boolean to parse")),
                 }
             },
-            ExprK::Blk(block) => {
+            ExprK::Block(block) => {
                 let mut returns = Value::None;
                 for expr in &block.list {
                     returns = self.eval_r(expr);
@@ -279,6 +278,19 @@ impl Eval {
                     }
                 }
             },
+            ExprK::Loop(loop_block) => {
+                match &loop_block.kind {
+                    LoopK::For(head, body) => {
+                        todo!()
+                    },
+                    LoopK::While(cond, body) => {
+                        todo!()
+                    },
+                    LoopK::Loop(label, body) => {
+                        todo!()
+                    },
+                }
+            },
         }
     }
 
@@ -326,6 +338,7 @@ impl Display for Marker {
     }
 }
 
+/// The product of the first step of lowering the AST
 #[derive(Debug, PartialOrd)]
 pub enum Ir {
     Nop,
@@ -333,39 +346,42 @@ pub enum Ir {
     Sub,
     Div,
     Mul,
-    Store(Marker),
-    Bool(bool),
-    Integer(i64),
-    Float(f64),
-    Jump(Marker),
-    JumpTrue(Marker),
-    JumpFalse(Marker),
-    Load(Marker),
 
     CmpLess,
     CmpGreater,
     
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+
+    Jump(Marker),
+    JumpTrue(Marker),
+    JumpFalse(Marker),
+    
+    Load(Marker),
+    Store(Marker),
+
     // A symbol - usually preceeds a function def
     Symbol(Sym),
-    Return,
+    
     Call(Sym),
+    Return,
 }
 
 impl PartialEq for Ir {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Store(l0), Self::Store(r0)) => l0 == r0,
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
             (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
             (Self::Float(l0), Self::Float(r0)) => {
-                assert_eq!(false, l0.is_nan());
-                assert_eq!(false, r0.is_nan());
+                assert_eq!(false, l0.is_nan() && r0.is_nan());
                 l0 == r0
             },
             (Self::Jump(l0), Self::Jump(r0)) => l0 == r0,
             (Self::JumpTrue(l0), Self::JumpTrue(r0)) => l0 == r0,
             (Self::JumpFalse(l0), Self::JumpFalse(r0)) => l0 == r0,
             (Self::Load(l0), Self::Load(r0)) => l0 == r0,
+            (Self::Store(l0), Self::Store(r0)) => l0 == r0,
             (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
@@ -481,7 +497,7 @@ impl Emit {
                     LitK::Float => code.emit(Ir::Float(lit.symbol.parse::<f64>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "float")))),
                 }
             },
-            ExprK::Blk(block) => {
+            ExprK::Block(block) => {
                 for expr in &block.list {
                     self.emit_r(expr);
                 }
@@ -524,14 +540,13 @@ impl Emit {
                     Value::Bool(_value) => todo!(),
                 }
             },
-            
             // A function declaration
             ExprK::Fn(func) => {
                 let path = &func.path;
                 let symbol = self.syms.make(path);
                 self.code.emit(Ir::Symbol(symbol));
 
-                if let ExprK::Blk(body) = &func.body.kind {
+                if let ExprK::Block(body) = &func.body.kind {
                     for expr in &body.list {
                         self.emit_r(expr);
                     }
@@ -578,6 +593,19 @@ impl Emit {
                     }
                 }
             },
+            ExprK::Loop(loop_block) => {
+                match &loop_block.kind {
+                    LoopK::For(head, body) => {
+                        todo!()
+                    },
+                    LoopK::While(cond, body) => {
+                        todo!()
+                    },
+                    LoopK::Loop(label, body) => {
+                        todo!()
+                    },
+                }
+            },
         }
     }
 }
@@ -608,11 +636,11 @@ mod test {
 
         let source = include_str!("example/foo.rs");
         let expr = Parse::parse(source).expect("expected ast");
-
+        
         let code = Emit::emit(&expr);
         let result = Eval::eval(&expr);
         
-        //println!("{:#?}", expr);
+        println!("{:#?}", expr);
         println!("{}", code);
         println!("{}", source);
         println!("{}", result);
