@@ -450,8 +450,12 @@ impl SymTable {
         match self.table.write() {
             Ok(mut guard) => {
                 let key = SymTable::hash_str(string.as_str());
-                if let Some(_item) = guard.get(&key) {
-
+                if let Some(existing) = guard.get(&key) {
+                    assert_eq!(
+                        existing, &string,
+                        "symbol table hash collision: {:?} and {:?} produce the same key",
+                        existing, string
+                    );
                 } else {
                     guard.insert(key, string);
                 }
