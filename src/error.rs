@@ -1,12 +1,21 @@
 use std::error::Error;
+use std::fmt::Display;
 
-use crate::ast::Sym;
+use crate::ast::{Span, Sym};
+use crate::token::TokenK;
 use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub enum ParserErrorK {
     Unknown,
     Unexpected,
+    UnexpectedToken { expected: TokenK, found: TokenK, span: Span },
+    InvalidBinOp { span: Span },
+    InvalidInfixOp { span: Span },
+    InvalidLValue { span: Span },
+    InvalidPrefixOp { span: Span },
+    ExpectedExpression { context: &'static str, span: Span },
+    ExpectedPath { context: &'static str, span: Span },
 }
 
 #[derive(Debug, Clone)]
@@ -20,7 +29,24 @@ impl ParserError {
             errs: vec![ParserErrorK::Unknown],
         }
     }
+
+    pub fn single(kind: ParserErrorK) -> Self {
+        Self {
+            errs: vec![kind],
+        }
+    }
 }
+
+impl Display for ParserError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for err in &self.errs {
+            writeln!(f, "{err:?}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for ParserError {}
 
 pub fn err_fatal<E: Error>(err: E, why: &'static str) -> ! {
     panic!("fatal internal error: {why},\n{err}")
