@@ -5,6 +5,7 @@ pub mod ast;
 pub mod token;
 pub mod codegen;
 pub mod error;
+pub mod lex;
 pub mod parse;
 
 
