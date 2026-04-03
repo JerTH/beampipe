@@ -86,7 +86,7 @@ impl Eval {
                         self.eval_r(lhs).mul(self.eval_r(rhs))
                     },
                     BinOpK::CmpLess => {
-                        self.eval_r(lhs).gt(self.eval_r(rhs))
+                        self.eval_r(lhs).lt(self.eval_r(rhs))
                     },
                     BinOpK::CmpGreater => {
                         self.eval_r(lhs).gt(self.eval_r(rhs))

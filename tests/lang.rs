@@ -132,15 +132,12 @@ mod comparison {
         assert_eq!(eval_source("fn main() { 3 > 5 }"), Value::Bool(false));
     }
 
-    // BUG: CmpLess currently calls gt() instead of lt() in eval_r
     #[test]
-    #[ignore]
     fn less_than_true() {
         assert_eq!(eval_source("fn main() { 3 < 5 }"), Value::Bool(true));
     }
 
     #[test]
-    #[ignore]
     fn less_than_false() {
         assert_eq!(eval_source("fn main() { 5 < 3 }"), Value::Bool(false));
     }
