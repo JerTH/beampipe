@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::ast::{Expr, Span};
+use crate::ast::Span;
 
 mod token_strs {
     pub const TOK_IF: &'static str = "if";
@@ -139,9 +139,4 @@ impl Token {
         }
     }
 
-    pub fn null_denotation(&self) -> fn() -> Expr {
-        match self.kind {
-            _ => || Expr::empty(),
-        }
-    }
 }
