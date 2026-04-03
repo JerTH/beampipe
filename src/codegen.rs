@@ -4,7 +4,7 @@ use std::{cell::RefCell, collections::HashMap, fmt::Display, ops::{Add, Deref, D
 use crate::ast::{*, Ident};
 
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub enum Value {
     #[default]
     None,
