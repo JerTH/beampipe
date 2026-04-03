@@ -12,9 +12,9 @@ pub struct Emit {
 
 impl Emit {
     pub fn emit(expr: &Expr) -> IrCode {
-        let mut emit = Self::default();
-        Emit::emit_r(&mut emit, expr);
-        return emit.code;
+        let emit = Self::default();
+        Emit::emit_r(&emit, expr);
+        emit.code
     }
 
     fn emit_r(&self, expr: &Expr) {
@@ -73,7 +73,7 @@ impl Emit {
                 todo!()
             },
             ExprK::Path(_path) => {
-                match Eval::eval(&expr) {
+                match Eval::eval(expr) {
                     Value::None => {},
                     Value::Int(_value) => todo!(),
                     Value::Float(_value) => todo!(),
@@ -113,7 +113,7 @@ impl Emit {
                 if let Some(else_block) = else_blk {
                     let jump_else_location = self.code.len();
                     self.code.emit(Ir::Jump(Marker::Temporary));
-                    self.emit_r(&else_block);
+                    self.emit_r(else_block);
 
                     let else_jump_offset = self.code.len() as isize - jump_else_location as isize;
                     self.code.patch(Ir::Jump(Marker::Offset(else_jump_offset)), jump_else_location, Ir::Jump(Marker::Temporary));

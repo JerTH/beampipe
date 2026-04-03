@@ -108,9 +108,9 @@ impl FromStr for Value {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(value) = s.parse::<i64>() {
-            return Ok(Value::Int(value));
+            Ok(Value::Int(value))
         } else if let Ok(value) = s.parse::<f64>() {
-            return Ok(Value::Float(value));
+            Ok(Value::Float(value))
         } else {
             Err(())
         }

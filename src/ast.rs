@@ -444,7 +444,7 @@ impl SymTable {
         }
     }
 
-    pub fn make<'a, S: Into<String>>(&self, string: S) -> Sym {
+    pub fn make<S: Into<String>>(&self, string: S) -> Sym {
         let string: String = string.into();
         
         match self.table.write() {
@@ -453,7 +453,7 @@ impl SymTable {
                 if let Some(_item) = guard.get(&key) {
 
                 } else {
-                    guard.insert(key, string.into());
+                    guard.insert(key, string);
                 }
 
                 Sym {
@@ -467,7 +467,7 @@ impl SymTable {
         }
     }
 
-    fn hash_str<'a>(sym: &'a str) -> u64 {
+    fn hash_str(sym: &str) -> u64 {
         const PRIME: u64 = 0x100000001b3;
         let mut state: u64 = 0xCCCC_FFFF_FFFF_CCCC;
 
@@ -490,7 +490,7 @@ impl std::cmp::Eq for SymTable {}
 
 impl std::cmp::PartialOrd for SymTable {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.astid.partial_cmp(&other.astid)
+        Some(self.cmp(other))
     }
 }
 
@@ -530,14 +530,14 @@ impl Sym {
         match self.table.read() {
             Ok(table) => match table.get(&self.index) {
                 Some(strval) => {
-                    return strval.clone();
+                    strval.clone()
                 }
                 None => {
-                    return String::from("unknown symbol");
+                    String::from("unknown symbol")
                 }
             },
             Err(_) => {
-                return String::from("sym:[internal error]");
+                String::from("sym:[internal error]")
             }
         }
     }

@@ -21,9 +21,9 @@ impl Lexer {
         let chars: Vec<char> = source.chars().collect();
         let mut buff: Vec<char> = Vec::new();
 
-        let mut iterator = chars.iter().enumerate();
+        let iterator = chars.iter().enumerate();
 
-        while let Some((curs, char)) = iterator.next() {
+        for (curs, char) in iterator {
             if char.is_alphanumeric() | char.is_whitespace() | !char.is_multi_part() {
                 self.match_key(curs, &mut buff);
             }
@@ -42,11 +42,10 @@ impl Lexer {
         }
 
         // Try to match once more after the loop
-        if !self.match_key(chars.len(), &mut buff) {
-            if !self.match_ident(chars.len(), &mut buff) {
+        if !self.match_key(chars.len(), &mut buff)
+            && !self.match_ident(chars.len(), &mut buff) {
                 self.match_numeric(chars.len(), &mut buff);
             }
-        }
     }
 
     fn match_numeric(&mut self, curs: usize, buff: &mut Vec<char>) -> bool {
@@ -62,22 +61,20 @@ impl Lexer {
 
         let mut token = None;
 
-        if let Ok(_) = string_repr.parse::<i64>() {
+        if string_repr.parse::<i64>().is_ok() {
             token = Some(Token::new(tspan, TokenK::LitInt))
         };
 
-        if token.is_none() {
-            if let Ok(_) = string_repr.parse::<f64>() {
-                token = Some(Token::new(tspan, TokenK::LitFloat))
-            };
+        if token.is_none() && string_repr.parse::<f64>().is_ok() {
+            token = Some(Token::new(tspan, TokenK::LitFloat))
         }
 
         if let Some(token) = token {
             self.tokens.push(token);
             buff.clear();
-            return true;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -152,9 +149,9 @@ impl Lexer {
         if let Some(token) = token {
             self.tokens.push(token);
             buff.clear();
-            return true;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -185,9 +182,9 @@ impl Lexer {
         if let Some(token) = matches {
             self.tokens.push(token);
             buff.clear();
-            return true;
+            true
         } else {
-            return false;
+            false
         }
     }
 }
@@ -198,9 +195,6 @@ trait CharImplExt {
 
 impl CharImplExt for char {
     fn is_multi_part(&self) -> bool {
-        match self {
-            '>' | '=' => true,
-            _ => false,
-        }
+        matches!(self, '>' | '=')
     }
 }

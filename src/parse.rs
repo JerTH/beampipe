@@ -91,6 +91,12 @@ pub struct Parser {
     change: Cell<bool>,
 }
 
+impl Default for Parser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Parser {
     pub fn new() -> Self {
         Self {
@@ -202,13 +208,7 @@ impl Parser {
         dbg_print!("{:?}\n", self.token());
         dbg_print!(push, "");
 
-        match self.token().kind {
-            TokenK::Eof |
-            //TokenK::RBrace => {
-            //    return None
-            //}
-            _ => {}
-        }
+        // TokenK::Eof is handled in parse_null_denotation
         
         let mut left = self.parse_null_denotation(self.token())?;
         //self.advance();
@@ -579,7 +579,7 @@ impl Parser {
         
         let args = self.parse_function_args()?;
         let args_span = Span::new(path_span.end, args.last().map(|f| f.span.end).unwrap_or(path_span.end));
-        let args = args.into_iter().map(|fnarg| Ptr::new(fnarg)).collect();
+        let args = args.into_iter().map(Ptr::new).collect();
 
         let path_exprk = ExprK::Path(Ptr::new(path));
         let call_span = Span::new(path_span.bgn, args_span.end);

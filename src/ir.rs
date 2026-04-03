@@ -65,7 +65,7 @@ impl PartialEq for Ir {
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
             (Self::Integer(l0), Self::Integer(r0)) => l0 == r0,
             (Self::Float(l0), Self::Float(r0)) => {
-                assert_eq!(false, l0.is_nan() && r0.is_nan());
+                assert!(!(l0.is_nan() && r0.is_nan()));
                 l0 == r0
             }
             (Self::Jump(l0), Self::Jump(r0)) => l0 == r0,
@@ -154,5 +154,9 @@ impl IrCode {
 
     pub fn len(&self) -> usize {
         self.code.borrow().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.code.borrow().is_empty()
     }
 }

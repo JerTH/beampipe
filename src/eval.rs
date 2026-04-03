@@ -29,7 +29,7 @@ impl Eval {
 
         match &expr.kind {
             ExprK::Empty => {
-                return Value::None
+                Value::None
             },
             ExprK::Semi(expr) => {
                 self.eval_r(expr);
@@ -41,9 +41,9 @@ impl Eval {
             },
             ExprK::Lit(lit) => {
                 match &lit.kind {
-                    LitK::Int => return Value::Int(lit.symbol.parse::<i64>().expect("expected i64 to parse")),
-                    LitK::Float => return Value::Float(lit.symbol.parse::<f64>().expect("expected f64 to parse")),
-                    LitK::Bool => return Value::Bool(lit.symbol.parse::<bool>().expect("expected boolean to parse")),
+                    LitK::Int => Value::Int(lit.symbol.parse::<i64>().expect("expected i64 to parse")),
+                    LitK::Float => Value::Float(lit.symbol.parse::<f64>().expect("expected f64 to parse")),
+                    LitK::Bool => Value::Bool(lit.symbol.parse::<bool>().expect("expected boolean to parse")),
                 }
             },
             ExprK::Block(block) => {
@@ -71,7 +71,7 @@ impl Eval {
                         err_is_not(&lhs, "identifier");
                     },
                 }
-                return Value::None;
+                Value::None
             },
             ExprK::BinOp(op, lhs, rhs) => {
                 match op.kind {
@@ -111,9 +111,9 @@ impl Eval {
                 };
 
                 if let Some(value) = self.vars.borrow().get(&ident.as_string()) {
-                    return value.clone()
+                    value.clone()
                 } else {
-                    return Value::Ident(ident)
+                    Value::Ident(ident)
                 }
             },
             ExprK::Fn(func) => {
@@ -141,13 +141,13 @@ impl Eval {
             ExprK::If(cond, then, else_then) => {
                 match self.eval_r(cond) {
                     Value::Bool(true) => {
-                        return self.eval_r(then)
+                        self.eval_r(then)
                     },
                     Value::Bool(false) => {
                         if let Some(expr) = else_then {
-                            return self.eval_r(expr)
+                            self.eval_r(expr)
                         } else {
-                            return Value::None
+                            Value::None
                         }
                     },
                     condr => {
@@ -181,7 +181,7 @@ impl Eval {
         }
     }
 
-    fn call_fn(&self, func: &Ptr<Path>, args: &Vec<Ptr<FnArg>>) -> Value {
+    fn call_fn(&self, func: &Ptr<Path>, args: &[Ptr<FnArg>]) -> Value {
         let func_path_string = String::from(func);
 
         if let Some(func) = self.func.borrow().get(&func_path_string) {
@@ -189,7 +189,7 @@ impl Eval {
                 let resolved_param = self.eval_r(&arg.expr);
                 self.vars.borrow_mut().insert(param.ident.as_string(), resolved_param);
             }
-            return self.eval_r(&func.body)
+            self.eval_r(&func.body)
         } else {
             let funcs_clone = self.func.borrow().clone();
             let funcs = funcs_clone.iter().map(|f| f.0).collect::<Vec<_>>();
