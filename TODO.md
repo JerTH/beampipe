@@ -1,32 +1,10 @@
 # Next Steps
 
-Three focused work items derived from a code review of the variable scoping implementation (commit `c0abb5f`). Each is self-contained and can be tackled independently.
+Two focused work items derived from a code review of the variable scoping implementation (commit `c0abb5f`). Each is self-contained and can be tackled independently.
 
 ---
 
-## 1. While Loops
-
-**Goal:** Implement `while` loop evaluation and IR emission.
-
-**What exists:**
-- `LoopK::While(cond, body)` is already parsed and represented in the AST (`src/ast.rs`)
-- `ExprK::Loop` is matched in both `eval.rs:212` and `emit.rs:150`, with `todo!()` stubs
-- Three TDD tests are ready in `tests/lang.rs` under `mod while_loops` (currently `#[ignore]`): `simple_while`, `while_sum`, `while_never_enters`
-
-**Eval implementation (`src/eval.rs`):**
-- In the `LoopK::While` arm, loop: evaluate `cond`, break if not `Value::Bool(true)`, otherwise evaluate `body`
-- The body is a `Block`, so scoping is already handled by the `ExprK::Block` arm
-- Return `Value::None` (Rust `while` loops evaluate to `()`)
-
-**IR implementation (`src/emit.rs`):**
-- Record the loop head position, emit the condition, emit `JumpFalse` with `Marker::Temporary`, emit the body, emit `Jump` back to head, patch the `JumpFalse` to point past the loop
-- Pattern already exists in the `ExprK::If` arm (lines 115-137)
-
-**Tests:** Un-ignore the three `while_loops` tests. Consider adding: nested while, while with reassignment (`let i = 0; while i < 10 { i = i + 1; } i`), while-false-never-enters.
-
----
-
-## 2. Equality and Logical Operators
+## 1. Equality and Logical Operators
 
 **Goal:** Implement `==`, `!=`, `&&`, `||`, `!` (unary not).
 
@@ -48,7 +26,7 @@ Three focused work items derived from a code review of the variable scoping impl
 
 ---
 
-## 3. Reduce Per-Lookup Allocation in Eval
+## 2. Reduce Per-Lookup Allocation in Eval
 
 **Goal:** Eliminate the `String` allocation that happens on every variable read, write, and assignment.
 

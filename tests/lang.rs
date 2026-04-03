@@ -540,7 +540,6 @@ mod while_loops {
     use super::*;
 
     #[test]
-    #[ignore]
     fn simple_while() {
         assert_eq!(
             eval_source("fn main() { let x = 0; while x < 5 { x = x + 1 } x }"),
@@ -549,7 +548,6 @@ mod while_loops {
     }
 
     #[test]
-    #[ignore]
     fn while_sum() {
         assert_eq!(
             eval_source(
@@ -560,7 +558,6 @@ mod while_loops {
     }
 
     #[test]
-    #[ignore]
     fn while_never_enters() {
         assert_eq!(
             eval_source("fn main() { let x = 10; while x < 0 { x = x + 1 } x }"),

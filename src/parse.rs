@@ -1,6 +1,6 @@
 use std::{fmt::Display, cell::Cell};
 
-use crate::{token::{Token, TokenK}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg, Local, LocalK}};
+use crate::{token::{Token, TokenK}, ast::{AstId, Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg, Local, LocalK, Loop, LoopK}};
 use crate::error::{ParserError, ParserErrorK};
 
 
@@ -670,6 +670,29 @@ impl Parser {
         )))
     }
 
+    fn parse_while_loop(&self) -> Result<Option<Expr>, ParserError> {
+        dbg_print!(green, "PARSE WHILE LOOP\n");
+        let span = self.token().span;
+
+        self.eat(TokenK::KeyWhile)?;
+
+        let cond = self.parse_expression(0)?.ok_or_else(|| {
+            ParserError::single(ParserErrorK::ExpectedExpression {
+                context: "while condition",
+                span: self.token().span,
+            })
+        })?;
+
+        let block = match self.parse_block()? {
+            Some(blk) => blk,
+            None => return Ok(None),
+        };
+
+        let span = Span::new(span.bgn, block.span.end);
+        let loop_node = Loop { astid: AstId::new(), kind: LoopK::While(Ptr::new(cond), Ptr::new(block)) };
+        Ok(Some(Expr::new(span, ExprK::Loop(Ptr::new(loop_node)))))
+    }
+
     fn parse_let_assignment(&self) -> Result<Option<Expr>, ParserError> {
         dbg_print!(green, "PARSE LET ASSIGNMENT\n");
 
@@ -771,6 +794,9 @@ impl Parser {
             },
             TokenK::KeyIf => {
                 self.parse_branch()
+            },
+            TokenK::KeyWhile => {
+                self.parse_while_loop()
             },
             TokenK::KeyLet => {
                 self.parse_let_assignment()

@@ -214,8 +214,15 @@ impl Eval {
                     LoopK::For(_head, _body) => {
                         todo!()
                     },
-                    LoopK::While(_cond, _body) => {
-                        todo!()
+                    LoopK::While(cond, body) => {
+                        while self.eval_r(cond) == Value::Bool(true) {
+                            let watermark = self.env.borrow_mut().push_scope();
+                            for expr in &body.list {
+                                self.eval_r(expr);
+                            }
+                            self.env.borrow_mut().pop_scope(watermark);
+                        }
+                        Value::None
                     },
                     LoopK::Loop(_label, _body) => {
                         todo!()

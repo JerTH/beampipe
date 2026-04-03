@@ -152,8 +152,28 @@ impl Emit {
                     LoopK::For(_head, _body) => {
                         todo!()
                     },
-                    LoopK::While(_cond, _body) => {
-                        todo!()
+                    LoopK::While(cond, body) => {
+                        let loop_head = self.code.len();
+                        self.emit_r(cond);
+
+                        let cond_location = self.code.len();
+                        self.code.emit(Ir::JumpFalse(Marker::Temporary));
+
+                        self.code.emit(Ir::ScopeEnter);
+                        for expr in &body.list {
+                            self.emit_r(expr);
+                        }
+                        self.code.emit(Ir::ScopeExit);
+
+                        let jump_back_offset = loop_head as isize - self.code.len() as isize;
+                        self.code.emit(Ir::Jump(Marker::Offset(jump_back_offset)));
+
+                        let exit_offset = self.code.len() as isize - cond_location as isize;
+                        self.code.patch(
+                            Ir::JumpFalse(Marker::Offset(exit_offset)),
+                            cond_location,
+                            Ir::JumpFalse(Marker::Temporary),
+                        );
                     },
                     LoopK::Loop(_label, _body) => {
                         todo!()
