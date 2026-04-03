@@ -1,0 +1,118 @@
+use std::{fmt::Display, ops::{Add, Div, Mul, Sub}, str::FromStr};
+
+use crate::ast::Ident;
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub enum Value {
+    #[default]
+    None,
+
+    Int(i64),
+    Float(f64),
+    Ident(Ident),
+    Bool(bool),
+}
+
+impl Add for Value {
+    type Output = Value;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Sub for Value {
+    type Output = Value;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Mul for Value {
+    type Output = Value;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Div for Value {
+    type Output = Value;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Value {
+    pub fn lt(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Bool(a < b),
+            (Value::Float(a), Value::Float(b)) => Value::Bool(a < b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn gt(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Bool(a > b),
+            (Value::Float(a), Value::Float(b)) => Value::Bool(a > b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::None => write!(f, "()"),
+            Value::Int(value) => write!(f, "{value}"),
+            Value::Float(value) => write!(f, "{value}"),
+            Value::Ident(value) => write!(f, "{value:?}"),
+            Value::Bool(value) => write!(f, "{value:?}"),
+        }
+    }
+}
+
+impl FromStr for Value {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(value) = s.parse::<i64>() {
+            return Ok(Value::Int(value));
+        } else if let Ok(value) = s.parse::<f64>() {
+            return Ok(Value::Float(value));
+        } else {
+            Err(())
+        }
+    }
+}

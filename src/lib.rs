@@ -3,6 +3,7 @@
 pub mod macros;
 pub mod ast;
 pub mod token;
+pub mod value;
 pub mod codegen;
 pub mod error;
 pub mod lex;

@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use crate::ast::Sym;
-use crate::codegen::Value;
+use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub enum ParserErrorK {
