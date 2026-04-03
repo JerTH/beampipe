@@ -1,8 +1,6 @@
-use crate::ast::{BinOpK, Expr, ExprK, LitK, LoopK, SymTable};
-use crate::error::{err_is_not, err_sym_is_not};
-use crate::eval::Eval;
+use crate::ast::{BinOpK, Expr, ExprK, Ident, LitK, LoopK, Path, Ptr, SymTable};
+use crate::error::err_sym_is_not;
 use crate::ir::{Ir, IrCode, Marker};
-use crate::value::Value;
 
 #[derive(Default)]
 pub struct Emit {
@@ -17,10 +15,16 @@ impl Emit {
         emit.code
     }
 
+    fn path_to_ident(&self, path: &Ptr<Path>) -> Ident {
+        let name = String::from(path);
+        Ident {
+            name: self.syms.make(name),
+            span: path.span,
+        }
+    }
+
     fn emit_r(&self, expr: &Expr) {
-        let (_, _) = (expr.astid, expr.span);
         let code = &self.code;
-        let _syms = &self.syms;
 
         match &expr.kind {
             ExprK::Empty => {
@@ -46,19 +50,18 @@ impl Emit {
                 }
             },
             ExprK::Assign(lhs, rhs) => {
-                match Eval::eval(lhs) {
-                    Value::Ident(ident) => {
+                match &lhs.kind {
+                    ExprK::Path(path) => {
                         self.emit_r(rhs);
+                        let ident = self.path_to_ident(path);
                         code.emit(Ir::Store(Marker::Ident(ident)));
                     },
-                    value => err_is_not(&value, "identifier"),
+                    _ => panic!("assignment lhs is not a path"),
                 }
             },
             ExprK::BinOp(op, lhs, rhs) => {
-                {
-                    self.emit_r(lhs);
-                    self.emit_r(rhs);
-                }
+                self.emit_r(lhs);
+                self.emit_r(rhs);
 
                 match op.kind {
                     BinOpK::Add => { code.emit(Ir::Add) },
@@ -72,16 +75,9 @@ impl Emit {
             ExprK::AssignOp(_, _, _) => {
                 todo!()
             },
-            ExprK::Path(_path) => {
-                match Eval::eval(expr) {
-                    Value::None => {},
-                    Value::Int(_value) => todo!(),
-                    Value::Float(_value) => todo!(),
-                    Value::Ident(ident) => {
-                        code.emit(Ir::Load(Marker::Ident(ident)))
-                    },
-                    Value::Bool(_value) => todo!(),
-                }
+            ExprK::Path(path) => {
+                let ident = self.path_to_ident(path);
+                code.emit(Ir::Load(Marker::Ident(ident)));
             },
             // A function declaration
             ExprK::Fn(func) => {
