@@ -1,7 +1,7 @@
 use std::{fmt::Display, cell::Cell};
 
 use crate::{token::{Token, TokenK}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg}};
-use crate::error::{ParserError, ParserErrorK};
+use crate::error::ParserError;
 
 
 

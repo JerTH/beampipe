@@ -230,7 +230,7 @@ pub struct Call {
 }
 
 impl Call {
-    pub fn new(path: Path, args: Vec<Expr>, span: Span) -> Self {
+    pub fn new(path: Path, args: Vec<Expr>, _span: Span) -> Self {
         Call {
             astid: astid!(),
             path,
@@ -450,8 +450,8 @@ impl SymTable {
         match self.table.write() {
             Ok(mut guard) => {
                 let key = SymTable::hash_str(string.as_str());
-                if let Some(item) = guard.get(&key) {
-                    
+                if let Some(_item) = guard.get(&key) {
+
                 } else {
                     guard.insert(key, string.into());
                 }

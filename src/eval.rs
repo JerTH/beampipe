@@ -1,6 +1,8 @@
 use std::{cell::RefCell, collections::HashMap, ops::{Add, Div, Mul, Sub}};
 
-use crate::ast::{*, Ident};
+use crate::ast::{
+    BinOpK, Expr, ExprK, FnArg, Ident, LitK, LoopK, Path, Ptr, Span, SymTable, Fn,
+};
 use crate::error::err_is_not;
 use crate::value::Value;
 

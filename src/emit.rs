@@ -1,4 +1,4 @@
-use crate::ast::*;
+use crate::ast::{BinOpK, Expr, ExprK, LitK, LoopK, SymTable};
 use crate::error::{err_is_not, err_sym_is_not};
 use crate::eval::Eval;
 use crate::ir::{Ir, IrCode, Marker};

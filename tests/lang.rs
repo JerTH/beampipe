@@ -17,10 +17,6 @@ fn eval_source(source: &str) -> Value {
     Eval::eval(&expr)
 }
 
-fn parses_ok(source: &str) {
-    Parse::parse(source).expect("parse failed");
-}
-
 fn parse_and_eval_ok(source: &str) {
     let expr = Parse::parse(source).expect("parse failed");
     let _ = Eval::eval(&expr);
