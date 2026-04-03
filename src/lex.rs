@@ -97,6 +97,18 @@ impl Lexer {
                 Some('=') => Some(Token::new(tspan, TokenK::EqEq)),
                 _ => None,
             },
+            Some('!') => match buff.get(1) {
+                Some('=') => Some(Token::new(tspan, TokenK::BangEq)),
+                _ => None,
+            },
+            Some('&') => match buff.get(1) {
+                Some('&') => Some(Token::new(tspan, TokenK::AmpAmp)),
+                _ => None,
+            },
+            Some('|') => match buff.get(1) {
+                Some('|') => Some(Token::new(tspan, TokenK::PipePipe)),
+                _ => None,
+            },
             Some('>') => Some(Token::new(tspan, TokenK::OpGreater)),
             Some('<') => Some(Token::new(tspan, TokenK::OpLess)),
             _ => None,
@@ -141,6 +153,7 @@ impl Lexer {
                 token::TOK_STAR => Some(Token::new(tspan, TokenK::OpMul)),
                 token::TOK_SLASH => Some(Token::new(tspan, TokenK::OpDiv)),
                 token::TOK_EQ => Some(Token::new(tspan, TokenK::OpEq)),
+                token::TOK_BANG => Some(Token::new(tspan, TokenK::OpBang)),
 
                 _ => None,
             };
@@ -195,6 +208,6 @@ trait CharImplExt {
 
 impl CharImplExt for char {
     fn is_multi_part(&self) -> bool {
-        matches!(self, '>' | '=')
+        matches!(self, '>' | '=' | '!' | '&' | '|')
     }
 }

@@ -34,6 +34,7 @@ mod token_strs {
     pub const TOK_DOT: &str = ".";
     pub const TOK_LESS: &str = "<";
     pub const TOK_GREATER: &str = ">";
+    pub const TOK_BANG: &str = "!";
 
     pub const TOK_USIZE: &str = "usize";
     pub const TOK_ISIZE: &str = "isize";
@@ -89,8 +90,13 @@ pub enum TokenK {
 
     // comparison
     EqEq,
+    BangEq,
     OpLess,
     OpGreater,
+
+    // logical
+    AmpAmp,
+    PipePipe,
 }
 
 impl Display for TokenK {
@@ -113,7 +119,8 @@ impl Token {
     pub fn prefix_binding(&self) -> ((), usize) {
         match self.kind {
             TokenK::OpAdd => ((), 50),
-            TokenK::OpSub => ((), 50),
+            TokenK::OpSub => ((), 70),
+            TokenK::OpBang => ((), 70),
             _ => ((), 00),
         }
     }
@@ -121,6 +128,10 @@ impl Token {
     pub fn infix_binding(&self) -> (usize, usize) {
         match self.kind {
             TokenK::OpEq => (2, 1),         // lowest precedence, right-associative
+            TokenK::PipePipe => (5, 6),
+            TokenK::AmpAmp => (10, 11),
+            TokenK::EqEq => (20, 21),
+            TokenK::BangEq => (20, 21),
             TokenK::OpLess => (30, 31),
             TokenK::OpGreater => (30, 31),
             TokenK::OpAdd => (50, 51),

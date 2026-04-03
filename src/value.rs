@@ -86,6 +86,65 @@ impl Value {
             }
         }
     }
+
+    pub fn eq_val(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Bool(a == b),
+            (Value::Float(a), Value::Float(b)) => Value::Bool(a == b),
+            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a == b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn neq(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Int(a), Value::Int(b)) => Value::Bool(a != b),
+            (Value::Float(a), Value::Float(b)) => Value::Bool(a != b),
+            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a != b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn and(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a && b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn or(self, rhs: Self) -> Value {
+        match (self, rhs) {
+            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a || b),
+            (_a, _b) => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn not(self) -> Value {
+        match self {
+            Value::Bool(a) => Value::Bool(!a),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
+
+    pub fn neg(self) -> Value {
+        match self {
+            Value::Int(a) => Value::Int(-a),
+            Value::Float(a) => Value::Float(-a),
+            _ => {
+                unimplemented!()
+            }
+        }
+    }
 }
 
 impl Display for Value {

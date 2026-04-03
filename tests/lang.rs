@@ -441,19 +441,16 @@ mod equality {
     use super::*;
 
     #[test]
-    #[ignore]
     fn equal_integers() {
         assert_eq!(eval_source("fn main() { 5 == 5 }"), Value::Bool(true));
     }
 
     #[test]
-    #[ignore]
     fn unequal_integers() {
         assert_eq!(eval_source("fn main() { 5 == 3 }"), Value::Bool(false));
     }
 
     #[test]
-    #[ignore]
     fn equal_booleans() {
         assert_eq!(
             eval_source("fn main() { true == true }"),
@@ -462,7 +459,6 @@ mod equality {
     }
 
     #[test]
-    #[ignore]
     fn not_equal() {
         assert_eq!(eval_source("fn main() { 5 != 3 }"), Value::Bool(true));
     }
@@ -472,7 +468,6 @@ mod logical_operators {
     use super::*;
 
     #[test]
-    #[ignore]
     fn and_true() {
         assert_eq!(
             eval_source("fn main() { true && true }"),
@@ -481,7 +476,6 @@ mod logical_operators {
     }
 
     #[test]
-    #[ignore]
     fn and_false() {
         assert_eq!(
             eval_source("fn main() { true && false }"),
@@ -490,7 +484,6 @@ mod logical_operators {
     }
 
     #[test]
-    #[ignore]
     fn or_true() {
         assert_eq!(
             eval_source("fn main() { false || true }"),
@@ -499,7 +492,6 @@ mod logical_operators {
     }
 
     #[test]
-    #[ignore]
     fn or_false() {
         assert_eq!(
             eval_source("fn main() { false || false }"),
@@ -512,25 +504,21 @@ mod prefix_operators {
     use super::*;
 
     #[test]
-    #[ignore]
     fn unary_negation_int() {
         assert_eq!(eval_source("fn main() { -5 }"), Value::Int(-5));
     }
 
     #[test]
-    #[ignore]
     fn logical_not_true() {
         assert_eq!(eval_source("fn main() { !true }"), Value::Bool(false));
     }
 
     #[test]
-    #[ignore]
     fn logical_not_false() {
         assert_eq!(eval_source("fn main() { !false }"), Value::Bool(true));
     }
 
     #[test]
-    #[ignore]
     fn double_negation() {
         assert_eq!(eval_source("fn main() { -(-5) }"), Value::Int(5));
     }

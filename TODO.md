@@ -1,32 +1,10 @@
 # Next Steps
 
-Two focused work items derived from a code review of the variable scoping implementation (commit `c0abb5f`). Each is self-contained and can be tackled independently.
+One focused work item derived from a code review of the variable scoping implementation (commit `c0abb5f`).
 
 ---
 
-## 1. Equality and Logical Operators
-
-**Goal:** Implement `==`, `!=`, `&&`, `||`, `!` (unary not).
-
-**What exists:**
-- TDD tests in `tests/lang.rs`: `mod equality` (4 tests), `mod logical_operators` (4 tests), `mod prefix_operators` (4 tests, includes `!`) — all `#[ignore]`
-- `BinOpK` enum in `src/ast.rs` currently has: `Add`, `Sub`, `Div`, `Mul`, `CmpLess`, `CmpGreater`
-- The tokenizer (`src/token.rs`) needs to be checked for `==`, `!=`, `&&`, `||` token kinds
-
-**Changes needed:**
-- **Tokenizer (`src/lex.rs`):** Add token recognition for `==`, `!=`, `&&`, `||` if not already present
-- **Token kinds (`src/token.rs`):** Add `OpEqEq`, `OpBangEq`, `OpAnd`, `OpOr` (or whatever naming convention is used), assign binding powers
-- **AST (`src/ast.rs`):** Add `BinOpK::Eq`, `BinOpK::Neq`, `BinOpK::And`, `BinOpK::Or`. For `!`, add a unary op representation or a dedicated `ExprK` variant
-- **Parser (`src/parse.rs`):** Handle new infix operators in `parse_left_denotation`. Handle `!` as a prefix operator in `parse_prefix_op` (currently returns an error at line 443)
-- **Eval (`src/eval.rs`):** Add match arms for the new `BinOpK` variants
-- **Value (`src/value.rs`):** `Value` already has `Bool`, so `eq`/`neq` can compare any two equal-typed values, and `and`/`or`/`not` operate on `Bool`
-- **IR (`src/ir.rs`, `src/emit.rs`):** Add `Ir::Eq`, `Ir::Neq`, `Ir::And`, `Ir::Or`, `Ir::Not` and emit them
-
-**Tests:** Un-ignore all tests in `equality`, `logical_operators`, and the `logical_not_*` / `double_negation` tests in `prefix_operators`.
-
----
-
-## 2. Reduce Per-Lookup Allocation in Eval
+## 1. Reduce Per-Lookup Allocation in Eval
 
 **Goal:** Eliminate the `String` allocation that happens on every variable read, write, and assignment.
 

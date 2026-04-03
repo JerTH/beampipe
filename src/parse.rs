@@ -1,6 +1,6 @@
 use std::{fmt::Display, cell::Cell};
 
-use crate::{token::{Token, TokenK}, ast::{AstId, Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg, Local, LocalK, Loop, LoopK}};
+use crate::{token::{Token, TokenK}, ast::{AstId, Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, UnaryOpK, Path, SymTable, FnArg, Local, LocalK, Loop, LoopK}};
 use crate::error::{ParserError, ParserErrorK};
 
 
@@ -275,6 +275,10 @@ impl Parser {
             TokenK::OpDiv => BinOpK::Div,
             TokenK::OpLess => BinOpK::CmpLess,
             TokenK::OpGreater => BinOpK::CmpGreater,
+            TokenK::EqEq => BinOpK::Eq,
+            TokenK::BangEq => BinOpK::Neq,
+            TokenK::AmpAmp => BinOpK::And,
+            TokenK::PipePipe => BinOpK::Or,
             _ => {
                 return Err(ParserError::single(ParserErrorK::InvalidBinOp {
                     span: token.span,
@@ -307,7 +311,11 @@ impl Parser {
             TokenK::OpAdd     |
             TokenK::OpSub     |
             TokenK::OpMul     |
-            TokenK::OpDiv => {
+            TokenK::OpDiv     |
+            TokenK::EqEq      |
+            TokenK::BangEq    |
+            TokenK::AmpAmp    |
+            TokenK::PipePipe => {
                 self.parse_binop(left, token)
             },
             _ => {
@@ -371,7 +379,11 @@ impl Parser {
             TokenK::OpAdd     |
             TokenK::OpSub     |
             TokenK::OpMul     |
-            TokenK::OpDiv => {
+            TokenK::OpDiv     |
+            TokenK::EqEq      |
+            TokenK::BangEq    |
+            TokenK::AmpAmp    |
+            TokenK::PipePipe => {
                 self.parse_infix_op(left, token)
             },
             TokenK::OpEq => {
@@ -439,11 +451,29 @@ impl Parser {
         Ok(Some(ident))
     }
 
-    fn parse_prefix_op(&self, _token: Token) -> Result<Option<Expr>, ParserError> {
+    fn parse_prefix_op(&self, token: Token) -> Result<Option<Expr>, ParserError> {
         dbg_print!(green, "PARSE PREFIX OP\n");
-        Err(ParserError::single(ParserErrorK::InvalidPrefixOp {
-            span: _token.span,
-        }))
+
+        let kind = match token.kind {
+            TokenK::OpSub => UnaryOpK::Neg,
+            TokenK::OpBang => UnaryOpK::Not,
+            _ => {
+                return Err(ParserError::single(ParserErrorK::InvalidPrefixOp {
+                    span: token.span,
+                }));
+            }
+        };
+
+        let binding = token.prefix_binding().1;
+        self.advance();
+        let operand = match self.parse_expression(binding)? {
+            Some(expr) => expr,
+            None => return Ok(None),
+        };
+
+        let span = Span::new(token.span.bgn, operand.span.end);
+        let exprk = ExprK::UnaryOp(kind, Ptr::new(operand));
+        Ok(Some(Expr::new(span, exprk)))
     }
 
     fn parse_block(&self) -> Result<Option<Blk>, ParserError> {
@@ -769,6 +799,12 @@ impl Parser {
             TokenK::OpBang |
             TokenK::OpSub => {
                 self.parse_prefix_op(token)
+            },
+            TokenK::LParen => {
+                self.advance(); // eat '('
+                let expr = self.parse_expression(0)?;
+                self.eat(TokenK::RParen)?;
+                Ok(expr)
             },
             TokenK::LBrace => {
                 match self.parse_block()? {

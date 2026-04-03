@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, ops::{Add, Div, Mul, Sub}};
 
 use crate::ast::{
-    BinOpK, Expr, ExprK, FnArg, LitK, LocalK, LoopK, Path, Ptr, SymTable, Fn,
+    BinOpK, UnaryOpK, Expr, ExprK, FnArg, LitK, LocalK, LoopK, Path, Ptr, SymTable, Fn,
 };
 use crate::value::Value;
 
@@ -148,6 +148,18 @@ impl Eval {
                     BinOpK::CmpGreater => {
                         self.eval_r(lhs).gt(self.eval_r(rhs))
                     },
+                    BinOpK::Eq => {
+                        self.eval_r(lhs).eq_val(self.eval_r(rhs))
+                    },
+                    BinOpK::Neq => {
+                        self.eval_r(lhs).neq(self.eval_r(rhs))
+                    },
+                    BinOpK::And => {
+                        self.eval_r(lhs).and(self.eval_r(rhs))
+                    },
+                    BinOpK::Or => {
+                        self.eval_r(lhs).or(self.eval_r(rhs))
+                    },
                 }
             },
             ExprK::AssignOp(_, _, _) => {
@@ -207,6 +219,13 @@ impl Eval {
                     _ => {
                         panic!("fn name is not a path");
                     }
+                }
+            },
+            ExprK::UnaryOp(kind, operand) => {
+                let val = self.eval_r(operand);
+                match kind {
+                    UnaryOpK::Neg => val.neg(),
+                    UnaryOpK::Not => val.not(),
                 }
             },
             ExprK::Loop(loop_block) => {

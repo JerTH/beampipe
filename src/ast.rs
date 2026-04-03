@@ -400,6 +400,16 @@ pub enum BinOpK {
     Mul,
     CmpLess,
     CmpGreater,
+    Eq,
+    Neq,
+    And,
+    Or,
+}
+
+#[derive(Debug, Clone)]
+pub enum UnaryOpK {
+    Neg,
+    Not,
 }
 
 #[derive(Debug, Clone)]
@@ -418,6 +428,7 @@ pub enum ExprK {
     Fn(Ptr<Fn>),
     If(Ptr<Expr>, Ptr<Expr>, Option<Ptr<Expr>>),
     Call(Ptr<Expr>, Vec<Ptr<FnArg>>),
+    UnaryOp(UnaryOpK, Ptr<Expr>),
 }
 
 impl ExprK {

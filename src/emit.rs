@@ -1,4 +1,4 @@
-use crate::ast::{BinOpK, Expr, ExprK, Ident, LitK, LocalK, LoopK, Path, Ptr, SymTable};
+use crate::ast::{BinOpK, UnaryOpK, Expr, ExprK, Ident, LitK, LocalK, LoopK, Path, Ptr, SymTable};
 use crate::error::err_sym_is_not;
 use crate::ir::{Ir, IrCode, Marker};
 
@@ -86,6 +86,10 @@ impl Emit {
                     BinOpK::Mul => { code.emit(Ir::Mul) },
                     BinOpK::CmpLess => { code.emit(Ir::CmpLess) },
                     BinOpK::CmpGreater => { code.emit(Ir::CmpGreater) },
+                    BinOpK::Eq => { code.emit(Ir::Eq) },
+                    BinOpK::Neq => { code.emit(Ir::Neq) },
+                    BinOpK::And => { code.emit(Ir::And) },
+                    BinOpK::Or => { code.emit(Ir::Or) },
                 }
             },
             ExprK::AssignOp(_, _, _) => {
@@ -145,6 +149,13 @@ impl Emit {
                     _ => {
                         panic!("call path is not a path");
                     }
+                }
+            },
+            ExprK::UnaryOp(kind, operand) => {
+                self.emit_r(operand);
+                match kind {
+                    UnaryOpK::Neg => { code.emit(Ir::Neg) },
+                    UnaryOpK::Not => { code.emit(Ir::Not) },
                 }
             },
             ExprK::Loop(loop_block) => {
