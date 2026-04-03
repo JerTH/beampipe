@@ -120,16 +120,16 @@ impl Token {
 
     pub fn infix_binding(&self) -> (usize, usize) {
         match self.kind {
-            TokenK::OpAdd => (50, 50),
-            TokenK::OpSub => (50, 50),
-            TokenK::OpMul => (60, 60),
-            TokenK::OpDiv => (60, 60),
-            TokenK::OpEq => (90, 90),
-            TokenK::Dot => (80, 80),
-            TokenK::ColCol => (90, 90),
-            TokenK::OpLess => (30, 30),
-            TokenK::OpGreater => (30, 30),
-            _ => (00, 00),
+            TokenK::OpEq => (2, 1),         // lowest precedence, right-associative
+            TokenK::OpLess => (30, 31),
+            TokenK::OpGreater => (30, 31),
+            TokenK::OpAdd => (50, 51),
+            TokenK::OpSub => (50, 51),
+            TokenK::OpMul => (60, 61),
+            TokenK::OpDiv => (60, 61),
+            TokenK::Dot => (80, 81),
+            TokenK::ColCol => (90, 91),
+            _ => (0, 0),
         }
     }
 

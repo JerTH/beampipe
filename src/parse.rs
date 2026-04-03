@@ -323,9 +323,9 @@ impl Parser {
     fn parse_reverse_infix_op(&self, left: Expr, token: Token) -> Option<Expr> {
         dbg_print!(green, "PARSE REVERSE INFIX OP\n");
 
+        let binding = token.infix_binding().right();
         self.advance();
         let lhs = left;
-        let binding = self.token().infix_binding().right().saturating_sub(11);
         let rhs = self.parse_expression(binding)?;
 
         match token.kind {
