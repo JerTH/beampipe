@@ -24,15 +24,15 @@ impl Lexer {
         let iterator = chars.iter().enumerate();
 
         for (curs, char) in iterator {
-            if char.is_alphanumeric() | char.is_whitespace() | !char.is_multi_part() {
+            if char.is_alphanumeric() || char.is_whitespace() || !char.is_multi_part() {
                 self.match_key(curs, &mut buff);
             }
 
-            if !char.is_numeric() & (*char != '.') {
+            if !char.is_numeric() && (*char != '.') {
                 self.match_numeric(curs, &mut buff);
             }
 
-            if !char.is_alphanumeric() & (*char != '_') {
+            if !char.is_alphanumeric() && (*char != '_') {
                 self.match_ident(curs, &mut buff);
             }
 
@@ -166,11 +166,11 @@ impl Lexer {
         };
 
         let matches = match buff[0] {
-            c if c.is_alphabetic() | (c == '_') => {
+            c if c.is_alphabetic() || (c == '_') => {
                 if buff
                     .iter()
                     .skip(1)
-                    .all(|c| c.is_alphanumeric() | (*c == '_'))
+                    .all(|c| c.is_alphanumeric() || (*c == '_'))
                 {
                     Some(Token::new(tspan, TokenK::LitIdent))
                 } else {
