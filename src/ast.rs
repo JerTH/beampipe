@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    error::Error,
     fmt::{Debug, Display},
     hash::Hash,
     ops::{Bound, Deref, DerefMut, RangeBounds},
@@ -10,6 +9,8 @@ use std::{
         Arc, RwLock,
     },
 };
+
+use crate::error::err_fatal;
 
 type PtrType<T> = Box<T>;
 
@@ -580,6 +581,3 @@ impl Debug for Sym {
     }
 }
 
-fn err_fatal<E: Error>(err: E, why: &'static str) -> ! {
-    panic!("fatal internal error: {why},\n{err}")
-}

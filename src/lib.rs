@@ -2,9 +2,10 @@
 #[macro_use]
 pub mod macros;
 pub mod ast;
-pub mod parse;
 pub mod token;
 pub mod codegen;
+pub mod error;
+pub mod parse;
 
 
 /**

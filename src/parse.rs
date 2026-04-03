@@ -1,6 +1,7 @@
 use std::{fmt::Display, cell::Cell};
 
 use crate::{token::{Token, TokenK, self}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg}};
+use crate::error::{ParserError, ParserErrorK};
 
 
 
@@ -265,24 +266,6 @@ where
 
 
 
-#[derive(Debug, Clone)]
-pub enum ParserErrorK {
-    Unknown,
-    Unexpected,
-}
-
-#[derive(Debug, Clone)]
-pub struct ParserError {
-    pub errs: Vec<ParserErrorK>
-}
-
-impl ParserError {
-    fn unknown() -> Self {
-        Self {
-            errs: vec![ParserErrorK::Unknown]
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Parser {

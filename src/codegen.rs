@@ -2,6 +2,7 @@ use core::panic;
 use std::{cell::RefCell, collections::HashMap, fmt::Display, ops::{Add, Deref, Div, Mul, Sub}, str::FromStr};
 
 use crate::ast::{*, Ident};
+use crate::error::{err_is_not, err_sym_is_not};
 
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -663,23 +664,3 @@ mod test {
     }
 }
 
-fn err_op_mismatch(op: &'static str, lhs: Value, rhs: Value) -> ! {
-    panic!("operator mismatch, cannot {op} {lhs:?} and {rhs:?}")
-}
-
-fn err_is_not<S: Into<String>>(value: &Value, kind: S) -> ! {
-    panic!("{value:?} is not of type {:?}", kind.into())
-}
-
-fn err_sym_is_not<S: Into<String>>(sym: &Sym, kind: S) -> ! {
-    panic!("{sym:?} is not a {:?}", kind.into())
-}
-
-//fn err_unexpected_char(unexpected: char) -> ! {
-//    panic!("unexpected character: {unexpected}");
-//}
-//
-//fn err_malformed_token(buffer: &Vec<char>) -> ! {
-//    let string = String::from_iter(buffer.into_iter());
-//    panic!("malformed token: {string}");
-//}
