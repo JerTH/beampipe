@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    error::Error,
     fmt::{Debug, Display},
     hash::Hash,
     ops::{Bound, Deref, DerefMut, RangeBounds},
@@ -10,6 +9,8 @@ use std::{
         Arc, RwLock,
     },
 };
+
+use crate::error::err_fatal;
 
 type PtrType<T> = Box<T>;
 
@@ -229,7 +230,7 @@ pub struct Call {
 }
 
 impl Call {
-    pub fn new(path: Path, args: Vec<Expr>, span: Span) -> Self {
+    pub fn new(path: Path, args: Vec<Expr>, _span: Span) -> Self {
         Call {
             astid: astid!(),
             path,
@@ -443,16 +444,20 @@ impl SymTable {
         }
     }
 
-    pub fn make<'a, S: Into<String>>(&self, string: S) -> Sym {
+    pub fn make<S: Into<String>>(&self, string: S) -> Sym {
         let string: String = string.into();
         
         match self.table.write() {
             Ok(mut guard) => {
                 let key = SymTable::hash_str(string.as_str());
-                if let Some(item) = guard.get(&key) {
-                    
+                if let Some(existing) = guard.get(&key) {
+                    assert_eq!(
+                        existing, &string,
+                        "symbol table hash collision: {:?} and {:?} produce the same key",
+                        existing, string
+                    );
                 } else {
-                    guard.insert(key, string.into());
+                    guard.insert(key, string);
                 }
 
                 Sym {
@@ -466,7 +471,7 @@ impl SymTable {
         }
     }
 
-    fn hash_str<'a>(sym: &'a str) -> u64 {
+    fn hash_str(sym: &str) -> u64 {
         const PRIME: u64 = 0x100000001b3;
         let mut state: u64 = 0xCCCC_FFFF_FFFF_CCCC;
 
@@ -489,7 +494,7 @@ impl std::cmp::Eq for SymTable {}
 
 impl std::cmp::PartialOrd for SymTable {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.astid.partial_cmp(&other.astid)
+        Some(self.cmp(other))
     }
 }
 
@@ -529,14 +534,14 @@ impl Sym {
         match self.table.read() {
             Ok(table) => match table.get(&self.index) {
                 Some(strval) => {
-                    return strval.clone();
+                    strval.clone()
                 }
                 None => {
-                    return String::from("unknown symbol");
+                    String::from("unknown symbol")
                 }
             },
             Err(_) => {
-                return String::from("sym:[internal error]");
+                String::from("sym:[internal error]")
             }
         }
     }
@@ -580,6 +585,3 @@ impl Debug for Sym {
     }
 }
 
-fn err_fatal<E: Error>(err: E, why: &'static str) -> ! {
-    panic!("fatal internal error: {why},\n{err}")
-}
