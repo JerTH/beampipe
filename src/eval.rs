@@ -1,13 +1,52 @@
 use std::{cell::RefCell, collections::HashMap, ops::{Add, Div, Mul, Sub}};
 
 use crate::ast::{
-    BinOpK, Expr, ExprK, FnArg, Ident, LitK, LoopK, Path, Ptr, Span, SymTable, Fn,
+    BinOpK, Expr, ExprK, FnArg, LitK, LocalK, LoopK, Path, Ptr, SymTable, Fn,
 };
-use crate::error::err_is_not;
 use crate::value::Value;
 
+struct Binding {
+    key: u64,
+    name: String,
+    value: Value,
+}
+
+struct Env {
+    bindings: Vec<Binding>,
+}
+
+impl Default for Env {
+    fn default() -> Self {
+        Env {
+            bindings: Vec::new(),
+        }
+    }
+}
+
+impl Env {
+    fn push_scope(&mut self) -> usize {
+        self.bindings.len()
+    }
+
+    fn pop_scope(&mut self, watermark: usize) {
+        self.bindings.truncate(watermark);
+    }
+
+    fn declare(&mut self, key: u64, name: String, value: Value) {
+        self.bindings.push(Binding { key, name, value });
+    }
+
+    fn lookup(&self, key: u64) -> Option<&Value> {
+        self.bindings.iter().rev().find(|b| b.key == key).map(|b| &b.value)
+    }
+
+    fn assign(&mut self, key: u64) -> Option<&mut Value> {
+        self.bindings.iter_mut().rev().find(|b| b.key == key).map(|b| &mut b.value)
+    }
+}
+
 pub struct Eval {
-    vars: RefCell<HashMap<String, Value>>,
+    env: RefCell<Env>,
     func: RefCell<HashMap<String, Ptr<Fn>>>,
     symt: RefCell<SymTable>,
 }
@@ -15,11 +54,22 @@ pub struct Eval {
 impl Eval {
     pub fn eval(expr: &Expr) -> Value {
         let state = Self {
-            vars: Default::default(),
+            env: Default::default(),
             symt: Default::default(),
             func: Default::default(),
         };
         state.eval_r(expr)
+    }
+
+    fn resolve_path(&self, path: &Ptr<Path>) -> (u64, String) {
+        let full_name: String = path.list.iter().fold(String::new(), |acc, x| {
+            format!("{}::{}", acc, x)
+        })
+        .trim_start_matches("::")
+        .into();
+
+        let key = self.symt.borrow().make(full_name.clone()).key();
+        (key, full_name)
     }
 
     fn eval_r(&self, expr: &Expr) -> Value {
@@ -33,7 +83,16 @@ impl Eval {
                 self.eval_r(expr);
                 Value::None
             },
-            ExprK::Local(_) => todo!(),
+            ExprK::Local(local) => {
+                let value = match &local.kind {
+                    LocalK::Decl => Value::None,
+                    LocalK::Init(expr) => self.eval_r(expr),
+                };
+                let key = local.ident.name.key();
+                let name = local.ident.as_string();
+                self.env.borrow_mut().declare(key, name, value);
+                Value::None
+            },
             ExprK::Item(_item) => {
                 todo!()
             },
@@ -45,28 +104,26 @@ impl Eval {
                 }
             },
             ExprK::Block(block) => {
+                let watermark = self.env.borrow_mut().push_scope();
                 let mut returns = Value::None;
                 for expr in &block.list {
                     returns = self.eval_r(expr);
                 }
-                if let Value::Ident(ident) = &returns {
-                    if let Some(value) = self.vars.borrow().get(&ident.as_string()) {
-                        returns = value.clone()
-                    }
-                }
+                self.env.borrow_mut().pop_scope(watermark);
                 returns
             },
             ExprK::Assign(lhs, rhs) => {
-                match (self.eval_r(lhs), self.eval_r(rhs)) {
-                    (Value::Ident(ident), value) => {
-                        self.vars
-                            .borrow_mut()
-                            .entry(ident.as_string())
-                            .and_modify(|v| *v = value.clone())
-                            .or_insert(value);
+                let value = self.eval_r(rhs);
+                match &lhs.kind {
+                    ExprK::Path(path) => {
+                        let (key, full_name) = self.resolve_path(path);
+                        match self.env.borrow_mut().assign(key) {
+                            Some(slot) => *slot = value,
+                            None => panic!("assignment to undeclared variable `{}`", full_name),
+                        }
                     },
-                    (lhs, _) => {
-                        err_is_not(&lhs, "identifier");
+                    _ => {
+                        panic!("invalid assignment target");
                     },
                 }
                 Value::None
@@ -97,21 +154,10 @@ impl Eval {
                 todo!()
             },
             ExprK::Path(path) => {
-                let full_name: String = path.list.iter().fold(String::new(), |acc, x| {
-                    format!("{}::{}", acc, x)
-                })
-                .trim_start_matches("::")
-                .into();
-
-                let ident = Ident {
-                    name: self.symt.borrow().make(full_name),
-                    span: Span::none(),
-                };
-
-                if let Some(value) = self.vars.borrow().get(&ident.as_string()) {
-                    value.clone()
-                } else {
-                    Value::Ident(ident)
+                let (key, full_name) = self.resolve_path(path);
+                match self.env.borrow().lookup(key) {
+                    Some(value) => value.clone(),
+                    None => panic!("undeclared variable `{}`", full_name),
                 }
             },
             ExprK::Fn(func) => {
@@ -149,7 +195,7 @@ impl Eval {
                         }
                     },
                     condr => {
-                        err_is_not(&condr, "boolean");
+                        panic!("{:?} is not a boolean", condr);
                     }
                 }
             },
@@ -182,12 +228,18 @@ impl Eval {
     fn call_fn(&self, func: &Ptr<Path>, args: &[Ptr<FnArg>]) -> Value {
         let func_path_string = String::from(func);
 
-        if let Some(func) = self.func.borrow().get(&func_path_string) {
-            for (param, arg) in func.sig.params.iter().zip(args.iter()) {
-                let resolved_param = self.eval_r(&arg.expr);
-                self.vars.borrow_mut().insert(param.ident.as_string(), resolved_param);
+        let func_def = self.func.borrow().get(&func_path_string).cloned();
+        if let Some(func_def) = func_def {
+            let watermark = self.env.borrow_mut().push_scope();
+            for (param, arg) in func_def.sig.params.iter().zip(args.iter()) {
+                let resolved = self.eval_r(&arg.expr);
+                let key = param.ident.name.key();
+                let name = param.ident.as_string();
+                self.env.borrow_mut().declare(key, name, resolved);
             }
-            self.eval_r(&func.body)
+            let result = self.eval_r(&func_def.body);
+            self.env.borrow_mut().pop_scope(watermark);
+            result
         } else {
             let funcs_clone = self.func.borrow().clone();
             let funcs = funcs_clone.iter().map(|f| f.0).collect::<Vec<_>>();

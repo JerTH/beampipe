@@ -525,6 +525,10 @@ pub struct Sym {
 }
 
 impl Sym {
+    pub fn key(&self) -> u64 {
+        self.index
+    }
+
     pub fn parse<T: FromStr>(&self) -> Result<T, <T as FromStr>::Err> {
         let strval = self.as_string();
         strval.parse::<T>()

@@ -1,7 +1,5 @@
 use std::{fmt::Display, ops::{Add, Div, Mul, Sub}, str::FromStr};
 
-use crate::ast::Ident;
-
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum Value {
     #[default]
@@ -9,7 +7,6 @@ pub enum Value {
 
     Int(i64),
     Float(f64),
-    Ident(Ident),
     Bool(bool),
 }
 
@@ -97,7 +94,6 @@ impl Display for Value {
             Value::None => write!(f, "()"),
             Value::Int(value) => write!(f, "{value}"),
             Value::Float(value) => write!(f, "{value}"),
-            Value::Ident(value) => write!(f, "{value:?}"),
             Value::Bool(value) => write!(f, "{value:?}"),
         }
     }

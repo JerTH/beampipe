@@ -177,20 +177,18 @@ mod variables {
 
     #[test]
     fn assign_and_read() {
-        assert_eq!(eval_source("fn main() { x = 10; x + 5 }"), Value::Int(15));
+        assert_eq!(eval_source("fn main() { let x = 10; x + 5 }"), Value::Int(15));
     }
 
-    // BUG: reassignment fails because eval resolves LHS variable before assign
     #[test]
-    #[ignore]
     fn reassignment() {
-        assert_eq!(eval_source("fn main() { x = 1; x = 2; x }"), Value::Int(2));
+        assert_eq!(eval_source("fn main() { let x = 1; x = 2; x }"), Value::Int(2));
     }
 
     #[test]
     fn multiple_variables() {
         assert_eq!(
-            eval_source("fn main() { a = 3; b = 7; a + b }"),
+            eval_source("fn main() { let a = 3; let b = 7; a + b }"),
             Value::Int(10)
         );
     }
@@ -198,7 +196,7 @@ mod variables {
     #[test]
     fn variable_in_expression() {
         assert_eq!(
-            eval_source("fn main() { x = 5; x * x + 1 }"),
+            eval_source("fn main() { let x = 5; x * x + 1 }"),
             Value::Int(26)
         );
     }
@@ -235,7 +233,7 @@ mod functions {
     fn function_multiple_statements() {
         assert_eq!(
             eval_source(
-                "fn compute(a: i32, b: i32) { c = a + b; c * 2 } fn main() { compute(3, 4) }"
+                "fn compute(a: i32, b: i32) { let c = a + b; c * 2 } fn main() { compute(3, 4) }"
             ),
             Value::Int(14)
         );
@@ -333,13 +331,11 @@ mod let_bindings {
     use super::*;
 
     #[test]
-    #[ignore]
     fn simple_let() {
         assert_eq!(eval_source("fn main() { let x = 5; x }"), Value::Int(5));
     }
 
     #[test]
-    #[ignore]
     fn multiple_let_bindings() {
         assert_eq!(
             eval_source("fn main() { let x = 1; let y = 2; x + y }"),
@@ -348,7 +344,6 @@ mod let_bindings {
     }
 
     #[test]
-    #[ignore]
     fn let_then_reassign() {
         // all let bindings are mutable — reassignment should work
         assert_eq!(
@@ -358,7 +353,6 @@ mod let_bindings {
     }
 
     #[test]
-    #[ignore]
     fn let_with_expression() {
         assert_eq!(
             eval_source("fn main() { let x = 2 + 3; x * 2 }"),
@@ -367,11 +361,78 @@ mod let_bindings {
     }
 
     #[test]
-    #[ignore]
     fn let_with_type_annotation() {
         assert_eq!(
             eval_source("fn main() { let x: i32 = 42; x }"),
             Value::Int(42)
+        );
+    }
+}
+
+mod scoping {
+    use super::*;
+
+    #[test]
+    fn inner_block_does_not_leak() {
+        let result = std::panic::catch_unwind(|| {
+            eval_source("fn main() { { let x = 5; } x }")
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn outer_variable_visible_in_inner_block() {
+        assert_eq!(
+            eval_source("fn main() { let x = 10; { x + 5 } }"),
+            Value::Int(15)
+        );
+    }
+
+    #[test]
+    fn shadowing_in_inner_block() {
+        assert_eq!(
+            eval_source("fn main() { let x = 1; { let x = 2; x } }"),
+            Value::Int(2)
+        );
+    }
+
+    #[test]
+    fn shadow_restored_after_block() {
+        assert_eq!(
+            eval_source("fn main() { let x = 1; { let x = 99; } x }"),
+            Value::Int(1)
+        );
+    }
+
+    #[test]
+    fn reassign_outer_from_inner_block() {
+        assert_eq!(
+            eval_source("fn main() { let x = 1; { x = 42; } x }"),
+            Value::Int(42)
+        );
+    }
+
+    #[test]
+    fn function_params_scoped() {
+        assert_eq!(
+            eval_source("fn foo(x: i32) { x + 1 } fn main() { let y = foo(5); y }"),
+            Value::Int(6)
+        );
+    }
+
+    #[test]
+    fn sibling_blocks_independent() {
+        assert_eq!(
+            eval_source("fn main() { let r = 0; { let x = 10; r = x; } { let x = 20; r = r + x; } r }"),
+            Value::Int(30)
+        );
+    }
+
+    #[test]
+    fn same_scope_shadowing() {
+        assert_eq!(
+            eval_source("fn main() { let x = 1; let x = 2; x }"),
+            Value::Int(2)
         );
     }
 }

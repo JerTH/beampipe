@@ -1,6 +1,6 @@
 use std::{fmt::Display, cell::Cell};
 
-use crate::{token::{Token, TokenK}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg}};
+use crate::{token::{Token, TokenK}, ast::{Fn, Expr, ExprK, Span, Ptr, Sym, TyK, Ty, FnSig, FnParam, Blk, Ident, Lit, LitK, BinOp, BinOpK, Path, SymTable, FnArg, Local, LocalK}};
 use crate::error::{ParserError, ParserErrorK};
 
 
@@ -673,8 +673,51 @@ impl Parser {
     fn parse_let_assignment(&self) -> Result<Option<Expr>, ParserError> {
         dbg_print!(green, "PARSE LET ASSIGNMENT\n");
 
+        let let_token = self.token();
         self.eat(TokenK::KeyLet)?;
-        self.parse_null_denotation(self.token())
+
+        // Parse the identifier
+        let ident = self.parse_ident()?.ok_or_else(|| {
+            ParserError::single(ParserErrorK::ExpectedExpression {
+                context: "let binding identifier",
+                span: self.token().span,
+            })
+        })?;
+
+        // Optional type annotation: `: Type`
+        let ty = if self.peek_kind(0) == Some(TokenK::Colon) {
+            self.eat(TokenK::Colon)?;
+            let typath = self.require_path("let binding type")?;
+            let tyspan = typath.span;
+            Ty::new(TyK::Path(Ptr::new(typath)), tyspan)
+        } else {
+            Ty::new(TyK::Infer, Span::none())
+        };
+
+        // Optional initializer: `= expr`
+        let kind = if self.peek_kind(0) == Some(TokenK::OpEq) {
+            self.advance(); // eat '='
+            let init_expr = self.parse_expression(0)?.ok_or_else(|| {
+                ParserError::single(ParserErrorK::ExpectedExpression {
+                    context: "let binding initializer",
+                    span: self.token().span,
+                })
+            })?;
+            LocalK::Init(Ptr::new(init_expr))
+        } else {
+            LocalK::Decl
+        };
+
+        let span = Span::new(let_token.span.bgn, self.token().span.end);
+        let local = Local {
+            astid: crate::ast::AstId::new(),
+            ident,
+            kind,
+            ty: Ptr::new(ty),
+            span,
+        };
+
+        Ok(Some(Expr::new(span, ExprK::Local(Ptr::new(local)))))
     }
 
     fn parse_null_denotation(&self, _token: Token) -> Result<Option<Expr>, ParserError> {

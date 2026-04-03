@@ -57,6 +57,10 @@ pub enum Ir {
 
     Call(Sym),
     Return,
+
+    ScopeEnter,
+    ScopeExit,
+    Decl(Marker),
 }
 
 impl PartialEq for Ir {
@@ -74,6 +78,7 @@ impl PartialEq for Ir {
             (Self::Load(l0), Self::Load(r0)) => l0 == r0,
             (Self::Store(l0), Self::Store(r0)) => l0 == r0,
             (Self::Symbol(l0), Self::Symbol(r0)) => l0 == r0,
+            (Self::Decl(l0), Self::Decl(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -109,6 +114,9 @@ impl Display for Ir {
             Ir::CmpGreater => write!(f, "GT"),
             Ir::Return => write!(f, "RET"),
             Ir::Call(sym) => write!(f, "CALL({})", sym),
+            Ir::ScopeEnter => write!(f, "SCOPE_ENTER"),
+            Ir::ScopeExit => write!(f, "SCOPE_EXIT"),
+            Ir::Decl(marker) => write!(f, "DECL({})", marker),
         }
     }
 }

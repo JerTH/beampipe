@@ -1,4 +1,4 @@
-use crate::ast::{BinOpK, Expr, ExprK, Ident, LitK, LoopK, Path, Ptr, SymTable};
+use crate::ast::{BinOpK, Expr, ExprK, Ident, LitK, LocalK, LoopK, Path, Ptr, SymTable};
 use crate::error::err_sym_is_not;
 use crate::ir::{Ir, IrCode, Marker};
 
@@ -35,7 +35,21 @@ impl Emit {
                 self.emit_r(expr)
             },
 
-            ExprK::Local(_) => todo!(),
+            ExprK::Local(local) => {
+                match &local.kind {
+                    LocalK::Init(expr) => {
+                        self.emit_r(expr);
+                    }
+                    LocalK::Decl => {
+                        code.emit(Ir::Nop);
+                    }
+                }
+                let ident = Ident {
+                    name: self.syms.make(local.ident.as_string()),
+                    span: local.span,
+                };
+                code.emit(Ir::Decl(Marker::Ident(ident)));
+            },
             ExprK::Item(_) => todo!(),
             ExprK::Lit(lit) => {
                 match lit.kind {
@@ -45,9 +59,11 @@ impl Emit {
                 }
             },
             ExprK::Block(block) => {
+                code.emit(Ir::ScopeEnter);
                 for expr in &block.list {
                     self.emit_r(expr);
                 }
+                code.emit(Ir::ScopeExit);
             },
             ExprK::Assign(lhs, rhs) => {
                 match &lhs.kind {
