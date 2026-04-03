@@ -9,7 +9,8 @@
 /// closures, modules, or traits.
 
 use beampipe::parse::Parse;
-use beampipe::codegen::{Eval, Value};
+use beampipe::eval::Eval;
+use beampipe::value::Value;
 
 fn eval_source(source: &str) -> Value {
     let expr = Parse::parse(source).expect("parse failed");

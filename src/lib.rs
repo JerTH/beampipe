@@ -5,10 +5,11 @@ pub mod ast;
 pub mod token;
 pub mod value;
 pub mod ir;
-pub mod codegen;
 pub mod error;
 pub mod lex;
 pub mod parse;
+pub mod eval;
+pub mod emit;
 
 
 /**
