@@ -14,8 +14,6 @@ pub struct Eval {
 
 impl Eval {
     pub fn eval(expr: &Expr) -> Value {
-        println!("Evaluating...");
-
         let state = Self {
             vars: Default::default(),
             symt: Default::default(),
