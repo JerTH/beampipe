@@ -1,5 +1,7 @@
 use std::{fmt::Display, ops::{Add, Div, Mul, Sub}, str::FromStr};
 
+use crate::error::RuntimeErrorK;
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum Value {
     #[default]
@@ -10,139 +12,172 @@ pub enum Value {
     Bool(bool),
 }
 
+impl Value {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::None => "None",
+            Value::Int(_) => "Int",
+            Value::Float(_) => "Float",
+            Value::Bool(_) => "Bool",
+        }
+    }
+}
+
 impl Add for Value {
-    type Output = Value;
+    type Output = Result<Value, RuntimeErrorK>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
-            (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
-            _ => {
-                unimplemented!()
-            }
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "add",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 }
 
 impl Sub for Value {
-    type Output = Value;
+    type Output = Result<Value, RuntimeErrorK>;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
-            (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
-            _ => {
-                unimplemented!()
-            }
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "subtract",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 }
 
 impl Mul for Value {
-    type Output = Value;
+    type Output = Result<Value, RuntimeErrorK>;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
-            (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
-            _ => {
-                unimplemented!()
-            }
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "multiply",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 }
 
 impl Div for Value {
-    type Output = Value;
+    type Output = Result<Value, RuntimeErrorK>;
 
     fn div(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
-            (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
-            _ => {
-                unimplemented!()
-            }
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a / b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "divide",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 }
 
 impl Value {
-    pub fn lt(self, rhs: Self) -> Value {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Bool(a < b),
-            (Value::Float(a), Value::Float(b)) => Value::Bool(a < b),
-            (_a, _b) => {
-                unimplemented!()
-            }
+    pub fn lt(self, rhs: Self) -> Result<Value, RuntimeErrorK> {
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(*a < *b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(*a < *b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "compare (<)",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 
-    pub fn gt(self, rhs: Self) -> Value {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Bool(a > b),
-            (Value::Float(a), Value::Float(b)) => Value::Bool(a > b),
-            (_a, _b) => {
-                unimplemented!()
-            }
+    pub fn gt(self, rhs: Self) -> Result<Value, RuntimeErrorK> {
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(*a > *b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(*a > *b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "compare (>)",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 
-    pub fn eq_val(self, rhs: Self) -> Value {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Bool(a == b),
-            (Value::Float(a), Value::Float(b)) => Value::Bool(a == b),
-            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a == b),
-            (_a, _b) => {
-                unimplemented!()
-            }
+    pub fn eq_val(self, rhs: Self) -> Result<Value, RuntimeErrorK> {
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(*a == *b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(*a == *b)),
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a == *b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "compare (==)",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 
-    pub fn neq(self, rhs: Self) -> Value {
-        match (self, rhs) {
-            (Value::Int(a), Value::Int(b)) => Value::Bool(a != b),
-            (Value::Float(a), Value::Float(b)) => Value::Bool(a != b),
-            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a != b),
-            (_a, _b) => {
-                unimplemented!()
-            }
+    pub fn neq(self, rhs: Self) -> Result<Value, RuntimeErrorK> {
+        match (&self, &rhs) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(*a != *b)),
+            (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(*a != *b)),
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a != *b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "compare (!=)",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 
-    pub fn and(self, rhs: Self) -> Value {
-        match (self, rhs) {
-            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a && b),
-            (_a, _b) => {
-                unimplemented!()
-            }
+    pub fn and(self, rhs: Self) -> Result<Value, RuntimeErrorK> {
+        match (&self, &rhs) {
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a && *b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "logical and (&&)",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 
-    pub fn or(self, rhs: Self) -> Value {
-        match (self, rhs) {
-            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a || b),
-            (_a, _b) => {
-                unimplemented!()
-            }
+    pub fn or(self, rhs: Self) -> Result<Value, RuntimeErrorK> {
+        match (&self, &rhs) {
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(*a || *b)),
+            _ => Err(RuntimeErrorK::TypeMismatch {
+                op: "logical or (||)",
+                lhs: self.type_name(),
+                rhs: rhs.type_name(),
+            }),
         }
     }
 
-    pub fn not(self) -> Value {
+    pub fn not(self) -> Result<Value, RuntimeErrorK> {
         match self {
-            Value::Bool(a) => Value::Bool(!a),
-            _ => {
-                unimplemented!()
-            }
+            Value::Bool(a) => Ok(Value::Bool(!a)),
+            _ => Err(RuntimeErrorK::UnaryTypeMismatch {
+                op: "not (!)",
+                operand: self.type_name(),
+            }),
         }
     }
 
-    pub fn neg(self) -> Value {
+    pub fn neg(self) -> Result<Value, RuntimeErrorK> {
         match self {
-            Value::Int(a) => Value::Int(-a),
-            Value::Float(a) => Value::Float(-a),
-            _ => {
-                unimplemented!()
-            }
+            Value::Int(a) => Ok(Value::Int(-a)),
+            Value::Float(a) => Ok(Value::Float(-a)),
+            _ => Err(RuntimeErrorK::UnaryTypeMismatch {
+                op: "negate (-)",
+                operand: self.type_name(),
+            }),
         }
     }
 }

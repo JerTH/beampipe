@@ -10,8 +10,6 @@ use std::{
     },
 };
 
-use crate::error::err_fatal;
-
 type PtrType<T> = Box<T>;
 
 #[derive(Clone)]
@@ -476,8 +474,8 @@ impl SymTable {
                     table: self.clone(),
                 }
             }
-            Err(err) => {
-                err_fatal(err, "poisoned rwlock on symtable");
+            Err(_) => {
+                panic!("internal: poisoned symtable lock");
             }
         }
     }

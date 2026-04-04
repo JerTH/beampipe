@@ -1,6 +1,7 @@
 use std::{cell::RefCell, fmt::Display};
 
-use crate::ast::{Ident, Sym};
+use crate::ast::{Ident, Span, Sym};
+use crate::error::{RuntimeError, RuntimeErrorK};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Marker {
@@ -19,7 +20,7 @@ impl Display for Marker {
                     0 => "",
                     1 => "+",
                     -1 => "-",
-                    _ => panic!("invalid signum"),
+                    _ => unreachable!("isize::signum returns -1, 0, or 1"),
                 };
                 write!(f, "{}{}", sig_str, offset)
             }
@@ -157,19 +158,28 @@ impl IrCode {
     /// the code already at that location matches `pred`
     ///
     /// Useful for patching markers
-    pub fn patch(&self, ir: Ir, at: usize, pred: Ir) {
-        assert!(at < self.len());
+    pub fn patch(&self, ir: Ir, at: usize, pred: Ir, span: Span) -> Result<(), RuntimeError> {
+        if at >= self.len() {
+            return Err(RuntimeError::new(
+                RuntimeErrorK::Internal { message: format!("patch index {at} out of bounds (len {})", self.len()) },
+                span,
+            ));
+        }
 
         if let Some(code) = self.code.borrow_mut().get_mut(at) {
             if *code == pred {
-                *code = ir
+                *code = ir;
             } else {
-                panic!(
-                    "codegen: expected {:?} but found {:?} during patch operation",
-                    pred, code
-                );
+                return Err(RuntimeError::new(
+                    RuntimeErrorK::PatchMismatch {
+                        expected: format!("{:?}", pred),
+                        found: format!("{:?}", code),
+                    },
+                    span,
+                ));
             }
         }
+        Ok(())
     }
 
     pub fn len(&self) -> usize {
