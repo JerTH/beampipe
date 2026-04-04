@@ -56,21 +56,21 @@ impl Emit {
                 match lit.kind {
                     LitK::Bool => {
                         let v = lit.symbol.parse::<bool>().map_err(|_| RuntimeError::new(
-                            RuntimeErrorK::SymbolParseFailure { kind: "boolean", text: lit.symbol.as_string() },
+                            RuntimeErrorK::ParseFailure { kind: "boolean", text: lit.symbol.as_string() },
                             span,
                         ))?;
                         code.emit(Ir::Bool(v));
                     },
                     LitK::Int => {
                         let v = lit.symbol.parse::<i64>().map_err(|_| RuntimeError::new(
-                            RuntimeErrorK::SymbolParseFailure { kind: "integer", text: lit.symbol.as_string() },
+                            RuntimeErrorK::ParseFailure { kind: "integer", text: lit.symbol.as_string() },
                             span,
                         ))?;
                         code.emit(Ir::Integer(v));
                     },
                     LitK::Float => {
                         let v = lit.symbol.parse::<f64>().map_err(|_| RuntimeError::new(
-                            RuntimeErrorK::SymbolParseFailure { kind: "float", text: lit.symbol.as_string() },
+                            RuntimeErrorK::ParseFailure { kind: "float", text: lit.symbol.as_string() },
                             span,
                         ))?;
                         code.emit(Ir::Float(v));

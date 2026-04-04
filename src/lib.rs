@@ -1,6 +1,4 @@
 
-#[macro_use]
-pub mod macros;
 pub mod ast;
 pub mod token;
 pub mod value;

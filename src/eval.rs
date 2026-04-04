@@ -105,21 +105,21 @@ impl Eval {
                 match &lit.kind {
                     LitK::Int => {
                         let v = lit.symbol.parse::<i64>().map_err(|_| RuntimeError::new(
-                            RuntimeErrorK::LiteralParseFailure { kind: "i64", text: lit.symbol.as_string() },
+                            RuntimeErrorK::ParseFailure { kind: "i64", text: lit.symbol.as_string() },
                             span,
                         ))?;
                         Ok(Value::Int(v))
                     },
                     LitK::Float => {
                         let v = lit.symbol.parse::<f64>().map_err(|_| RuntimeError::new(
-                            RuntimeErrorK::LiteralParseFailure { kind: "f64", text: lit.symbol.as_string() },
+                            RuntimeErrorK::ParseFailure { kind: "f64", text: lit.symbol.as_string() },
                             span,
                         ))?;
                         Ok(Value::Float(v))
                     },
                     LitK::Bool => {
                         let v = lit.symbol.parse::<bool>().map_err(|_| RuntimeError::new(
-                            RuntimeErrorK::LiteralParseFailure { kind: "bool", text: lit.symbol.as_string() },
+                            RuntimeErrorK::ParseFailure { kind: "bool", text: lit.symbol.as_string() },
                             span,
                         ))?;
                         Ok(Value::Bool(v))
@@ -189,13 +189,18 @@ impl Eval {
             ExprK::Fn(func) => {
                 let path = func.path.clone();
                 let path_str = String::from(&path);
-                if self.func.borrow().contains_key(&path_str) {
-                    return Err(RuntimeError::new(
-                        RuntimeErrorK::MultipleDeclarations { name: path_str },
-                        span,
-                    ));
+                {
+                    use std::collections::hash_map::Entry;
+                    match self.func.borrow_mut().entry(path_str.clone()) {
+                        Entry::Occupied(_) => {
+                            return Err(RuntimeError::new(
+                                RuntimeErrorK::MultipleDeclarations { name: path_str },
+                                span,
+                            ));
+                        }
+                        Entry::Vacant(e) => { e.insert(func.clone()); }
+                    }
                 }
-                self.func.borrow_mut().insert(path_str, func.clone());
 
                 // main entry-point for eval
                 if let Some(fn_path_name) = path.list.last() {
@@ -297,5 +302,4 @@ impl Eval {
     }
 }
 
-// Bring std ops into scope for the BinOp match
 use std::ops::{Add, Div, Mul, Sub};

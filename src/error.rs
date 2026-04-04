@@ -64,13 +64,12 @@ pub enum RuntimeErrorK {
     MultipleDeclarations { name: String },
     NonBooleanCondition { found: &'static str },
     InvalidCallTarget,
-    LiteralParseFailure { kind: &'static str, text: String },
+    ParseFailure { kind: &'static str, text: String },
 
     // Emit errors
     InvalidAssignmentLhs,
     FnBodyNotBlock,
     CallTargetNotPath,
-    SymbolParseFailure { kind: &'static str, text: String },
 
     // IR errors
     PatchMismatch { expected: String, found: String },
@@ -98,7 +97,7 @@ impl Display for RuntimeErrorK {
                 write!(f, "expected boolean condition, found `{found}`"),
             Self::InvalidCallTarget =>
                 write!(f, "function call target is not a path"),
-            Self::LiteralParseFailure { kind, text } =>
+            Self::ParseFailure { kind, text } =>
                 write!(f, "failed to parse `{text}` as {kind}"),
             Self::InvalidAssignmentLhs =>
                 write!(f, "assignment target is not a path"),
@@ -106,8 +105,6 @@ impl Display for RuntimeErrorK {
                 write!(f, "function body is not a block"),
             Self::CallTargetNotPath =>
                 write!(f, "call target is not a path"),
-            Self::SymbolParseFailure { kind, text } =>
-                write!(f, "failed to parse symbol `{text}` as {kind}"),
             Self::PatchMismatch { expected, found } =>
                 write!(f, "codegen: expected {expected} but found {found} during patch"),
             Self::Internal { message } =>
