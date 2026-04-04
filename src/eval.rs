@@ -1,14 +1,35 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::ast::{
-    BinOpK, UnaryOpK, Expr, ExprK, FnArg, LitK, LocalK, LoopK, Path, Ptr, SymTable, Fn, Span,
+    BinOpK, UnaryOpK, Expr, ExprK, FnArg, LitK, LocalK, LoopK, Path, Ptr, Fn, Span,
 };
 use crate::error::{RuntimeError, RuntimeErrorK};
 use crate::value::Value;
 
+fn path_key(path: &Path) -> u64 {
+    if path.list.len() == 1 {
+        return path.list[0].name.key();
+    }
+    const SEPARATOR: u64 = 0x1234_5678_9ABC_DEF0;
+    let mut state: u64 = 0xCBF2_9CE4_8422_2325;
+    for ident in &path.list {
+        state ^= ident.name.key();
+        state = state.wrapping_mul(0x0100_0000_01B3);
+        state ^= SEPARATOR;
+        state = state.wrapping_mul(0x0100_0000_01B3);
+    }
+    state
+}
+
+fn path_to_string(path: &Path) -> String {
+    path.list.iter()
+        .map(|ident| ident.as_string())
+        .collect::<Vec<_>>()
+        .join("::")
+}
+
 struct Binding {
     key: u64,
-    name: String,
     value: Value,
 }
 
@@ -33,8 +54,8 @@ impl Env {
         self.bindings.truncate(watermark);
     }
 
-    fn declare(&mut self, key: u64, name: String, value: Value) {
-        self.bindings.push(Binding { key, name, value });
+    fn declare(&mut self, key: u64, value: Value) {
+        self.bindings.push(Binding { key, value });
     }
 
     fn lookup(&self, key: u64) -> Option<&Value> {
@@ -52,29 +73,20 @@ fn with_span(result: Result<Value, RuntimeErrorK>, span: Span) -> Result<Value, 
 
 pub struct Eval {
     env: RefCell<Env>,
-    func: RefCell<HashMap<String, Ptr<Fn>>>,
-    symt: RefCell<SymTable>,
+    func: RefCell<HashMap<u64, Ptr<Fn>>>,
 }
 
 impl Eval {
     pub fn eval(expr: &Expr) -> Result<Value, RuntimeError> {
         let state = Self {
             env: Default::default(),
-            symt: Default::default(),
             func: Default::default(),
         };
         state.eval_r(expr)
     }
 
-    fn resolve_path(&self, path: &Ptr<Path>) -> (u64, String) {
-        let full_name: String = path.list.iter().fold(String::new(), |acc, x| {
-            format!("{}::{}", acc, x)
-        })
-        .trim_start_matches("::")
-        .into();
-
-        let key = self.symt.borrow().make(full_name.clone()).key();
-        (key, full_name)
+    fn resolve_path(&self, path: &Ptr<Path>) -> u64 {
+        path_key(path)
     }
 
     fn eval_r(&self, expr: &Expr) -> Result<Value, RuntimeError> {
@@ -94,8 +106,7 @@ impl Eval {
                     LocalK::Init(expr) => self.eval_r(expr)?,
                 };
                 let key = local.ident.name.key();
-                let name = local.ident.as_string();
-                self.env.borrow_mut().declare(key, name, value);
+                self.env.borrow_mut().declare(key, value);
                 Ok(Value::None)
             },
             ExprK::Item(_item) => {
@@ -139,11 +150,11 @@ impl Eval {
                 let value = self.eval_r(rhs)?;
                 match &lhs.kind {
                     ExprK::Path(path) => {
-                        let (key, full_name) = self.resolve_path(path);
+                        let key = self.resolve_path(path);
                         match self.env.borrow_mut().assign(key) {
                             Some(slot) => *slot = value,
                             None => return Err(RuntimeError::new(
-                                RuntimeErrorK::UndeclaredVariable { name: full_name },
+                                RuntimeErrorK::UndeclaredVariable { name: path_to_string(path) },
                                 lhs.span,
                             )),
                         }
@@ -177,24 +188,24 @@ impl Eval {
                 todo!()
             },
             ExprK::Path(path) => {
-                let (key, full_name) = self.resolve_path(path);
+                let key = self.resolve_path(path);
                 match self.env.borrow().lookup(key) {
                     Some(value) => Ok(value.clone()),
                     None => Err(RuntimeError::new(
-                        RuntimeErrorK::UndeclaredVariable { name: full_name },
+                        RuntimeErrorK::UndeclaredVariable { name: path_to_string(path) },
                         span,
                     )),
                 }
             },
             ExprK::Fn(func) => {
                 let path = func.path.clone();
-                let path_str = String::from(&path);
+                let key = path_key(&path);
                 {
                     use std::collections::hash_map::Entry;
-                    match self.func.borrow_mut().entry(path_str.clone()) {
+                    match self.func.borrow_mut().entry(key) {
                         Entry::Occupied(_) => {
                             return Err(RuntimeError::new(
-                                RuntimeErrorK::MultipleDeclarations { name: path_str },
+                                RuntimeErrorK::MultipleDeclarations { name: path_to_string(&path) },
                                 span,
                             ));
                         }
@@ -279,23 +290,22 @@ impl Eval {
     }
 
     fn call_fn(&self, func: &Ptr<Path>, args: &[Ptr<FnArg>], call_span: Span) -> Result<Value, RuntimeError> {
-        let func_path_string = String::from(func);
+        let key = path_key(func);
 
-        let func_def = self.func.borrow().get(&func_path_string).cloned();
+        let func_def = self.func.borrow().get(&key).cloned();
         if let Some(func_def) = func_def {
             let watermark = self.env.borrow_mut().push_scope();
             for (param, arg) in func_def.sig.params.iter().zip(args.iter()) {
                 let resolved = self.eval_r(&arg.expr)?;
                 let key = param.ident.name.key();
-                let name = param.ident.as_string();
-                self.env.borrow_mut().declare(key, name, resolved);
+                self.env.borrow_mut().declare(key, resolved);
             }
             let result = self.eval_r(&func_def.body)?;
             self.env.borrow_mut().pop_scope(watermark);
             Ok(result)
         } else {
             Err(RuntimeError::new(
-                RuntimeErrorK::UndeclaredFunction { name: func_path_string },
+                RuntimeErrorK::UndeclaredFunction { name: path_to_string(func) },
                 call_span,
             ))
         }
