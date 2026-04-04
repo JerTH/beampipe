@@ -3,6 +3,7 @@ use std::path::Path;
 use std::process;
 
 use beampipe::emit::Emit;
+use beampipe::error::format_error;
 use beampipe::eval::Eval;
 use beampipe::parse::Parse;
 
@@ -119,8 +120,13 @@ fn main() {
     let stem = args.output.unwrap_or_else(|| extract_stem(&args.file));
 
     if args.eval {
-        let value = Eval::eval(&expr);
-        println!("{}", value);
+        match Eval::eval(&expr) {
+            Ok(value) => println!("{}", value),
+            Err(e) => {
+                eprintln!("{}", format_error(&e, &source));
+                process::exit(1);
+            }
+        }
         return;
     }
 
@@ -131,7 +137,13 @@ fn main() {
     };
 
     if do_ir || do_bc {
-        let ir_code = Emit::emit(&expr);
+        let ir_code = match Emit::emit(&expr) {
+            Ok(code) => code,
+            Err(e) => {
+                eprintln!("{}", format_error(&e, &source));
+                process::exit(1);
+            }
+        };
         let ir_text = format!("{}", ir_code);
         if do_ir {
             write_output(&format!("{}.ir", stem), &ir_text);

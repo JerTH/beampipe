@@ -8,18 +8,24 @@
 /// no borrow checker, lifetimes, async, macros, derives, enums, match,
 /// closures, modules, or traits.
 
+use beampipe::error::{RuntimeError, RuntimeErrorK};
 use beampipe::parse::Parse;
 use beampipe::eval::Eval;
 use beampipe::value::Value;
 
 fn eval_source(source: &str) -> Value {
     let expr = Parse::parse(source).expect("parse failed");
-    Eval::eval(&expr)
+    Eval::eval(&expr).expect("eval failed")
+}
+
+fn eval_source_err(source: &str) -> RuntimeError {
+    let expr = Parse::parse(source).expect("parse failed");
+    Eval::eval(&expr).expect_err("expected eval error")
 }
 
 fn parse_and_eval_ok(source: &str) {
     let expr = Parse::parse(source).expect("parse failed");
-    let _ = Eval::eval(&expr);
+    Eval::eval(&expr).expect("eval failed");
 }
 
 // ============================================================
@@ -374,10 +380,8 @@ mod scoping {
 
     #[test]
     fn inner_block_does_not_leak() {
-        let result = std::panic::catch_unwind(|| {
-            eval_source("fn main() { { let x = 5; } x }")
-        });
-        assert!(result.is_err());
+        let err = eval_source_err("fn main() { { let x = 5; } x }");
+        assert!(matches!(err.kind, RuntimeErrorK::UndeclaredVariable { .. }));
     }
 
     #[test]
@@ -855,5 +859,82 @@ mod integration {
             ),
             Value::Int(5)
         );
+    }
+}
+
+// ============================================================
+// Error handling tests — verify proper error reporting
+// ============================================================
+
+mod error_handling {
+    use super::*;
+
+    #[test]
+    fn type_mismatch_add_int_bool() {
+        let err = eval_source_err("fn main() { 1 + true }");
+        assert!(matches!(err.kind, RuntimeErrorK::TypeMismatch { op: "add", .. }));
+    }
+
+    #[test]
+    fn type_mismatch_subtract() {
+        let err = eval_source_err("fn main() { true - 1 }");
+        assert!(matches!(err.kind, RuntimeErrorK::TypeMismatch { op: "subtract", .. }));
+    }
+
+    #[test]
+    fn undeclared_variable() {
+        let err = eval_source_err("fn main() { x }");
+        assert!(matches!(err.kind, RuntimeErrorK::UndeclaredVariable { .. }));
+    }
+
+    #[test]
+    fn undeclared_function() {
+        let err = eval_source_err("fn main() { foo() }");
+        assert!(matches!(err.kind, RuntimeErrorK::UndeclaredFunction { .. }));
+    }
+
+    #[test]
+    fn non_boolean_condition() {
+        let err = eval_source_err("fn main() { if 42 { 1 } }");
+        assert!(matches!(err.kind, RuntimeErrorK::NonBooleanCondition { found: "Int" }));
+    }
+
+    #[test]
+    fn assign_to_undeclared() {
+        let err = eval_source_err("fn main() { x = 5 }");
+        assert!(matches!(err.kind, RuntimeErrorK::UndeclaredVariable { .. }));
+    }
+
+    #[test]
+    fn multiple_declarations() {
+        let err = eval_source_err("fn main() { 1 } fn main() { 2 }");
+        assert!(matches!(err.kind, RuntimeErrorK::MultipleDeclarations { .. }));
+    }
+
+    #[test]
+    fn unary_type_mismatch_neg() {
+        let err = eval_source_err("fn main() { -true }");
+        assert!(matches!(err.kind, RuntimeErrorK::UnaryTypeMismatch { op: "negate (-)", .. }));
+    }
+
+    #[test]
+    fn unary_type_mismatch_not() {
+        let err = eval_source_err("fn main() { !5 }");
+        assert!(matches!(err.kind, RuntimeErrorK::UnaryTypeMismatch { op: "not (!)", .. }));
+    }
+
+    #[test]
+    fn error_has_span() {
+        let err = eval_source_err("fn main() { x }");
+        // Span should be non-trivial (not 0..0)
+        assert!(err.span.bgn > 0 || err.span.end > 0);
+    }
+
+    #[test]
+    fn error_display_is_readable() {
+        let err = eval_source_err("fn main() { 1 + true }");
+        let msg = format!("{}", err);
+        assert!(msg.contains("type mismatch"));
+        assert!(msg.contains("add"));
     }
 }

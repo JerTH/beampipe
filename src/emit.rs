@@ -1,5 +1,5 @@
 use crate::ast::{BinOpK, UnaryOpK, Expr, ExprK, Ident, LitK, LocalK, LoopK, Path, Ptr, SymTable};
-use crate::error::err_sym_is_not;
+use crate::error::{RuntimeError, RuntimeErrorK};
 use crate::ir::{Ir, IrCode, Marker};
 
 #[derive(Default)]
@@ -9,10 +9,10 @@ pub struct Emit {
 }
 
 impl Emit {
-    pub fn emit(expr: &Expr) -> IrCode {
+    pub fn emit(expr: &Expr) -> Result<IrCode, RuntimeError> {
         let emit = Self::default();
-        Emit::emit_r(&emit, expr);
-        emit.code
+        Emit::emit_r(&emit, expr)?;
+        Ok(emit.code)
     }
 
     fn path_to_ident(&self, path: &Ptr<Path>) -> Ident {
@@ -23,22 +23,23 @@ impl Emit {
         }
     }
 
-    fn emit_r(&self, expr: &Expr) {
+    fn emit_r(&self, expr: &Expr) -> Result<(), RuntimeError> {
         let code = &self.code;
+        let span = expr.span;
 
         match &expr.kind {
             ExprK::Empty => {
-                code.emit(Ir::Nop)
+                code.emit(Ir::Nop);
             },
 
             ExprK::Semi(expr) => {
-                self.emit_r(expr)
+                self.emit_r(expr)?;
             },
 
             ExprK::Local(local) => {
                 match &local.kind {
                     LocalK::Init(expr) => {
-                        self.emit_r(expr);
+                        self.emit_r(expr)?;
                     }
                     LocalK::Decl => {
                         code.emit(Ir::Nop);
@@ -53,31 +54,52 @@ impl Emit {
             ExprK::Item(_) => todo!(),
             ExprK::Lit(lit) => {
                 match lit.kind {
-                    LitK::Bool => code.emit(Ir::Bool(lit.symbol.parse::<bool>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "boolean")))),
-                    LitK::Int => code.emit(Ir::Integer(lit.symbol.parse::<i64>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "integer")))),
-                    LitK::Float => code.emit(Ir::Float(lit.symbol.parse::<f64>().unwrap_or_else(|_| err_sym_is_not(&lit.symbol, "float")))),
+                    LitK::Bool => {
+                        let v = lit.symbol.parse::<bool>().map_err(|_| RuntimeError::new(
+                            RuntimeErrorK::SymbolParseFailure { kind: "boolean", text: lit.symbol.as_string() },
+                            span,
+                        ))?;
+                        code.emit(Ir::Bool(v));
+                    },
+                    LitK::Int => {
+                        let v = lit.symbol.parse::<i64>().map_err(|_| RuntimeError::new(
+                            RuntimeErrorK::SymbolParseFailure { kind: "integer", text: lit.symbol.as_string() },
+                            span,
+                        ))?;
+                        code.emit(Ir::Integer(v));
+                    },
+                    LitK::Float => {
+                        let v = lit.symbol.parse::<f64>().map_err(|_| RuntimeError::new(
+                            RuntimeErrorK::SymbolParseFailure { kind: "float", text: lit.symbol.as_string() },
+                            span,
+                        ))?;
+                        code.emit(Ir::Float(v));
+                    },
                 }
             },
             ExprK::Block(block) => {
                 code.emit(Ir::ScopeEnter);
                 for expr in &block.list {
-                    self.emit_r(expr);
+                    self.emit_r(expr)?;
                 }
                 code.emit(Ir::ScopeExit);
             },
             ExprK::Assign(lhs, rhs) => {
                 match &lhs.kind {
                     ExprK::Path(path) => {
-                        self.emit_r(rhs);
+                        self.emit_r(rhs)?;
                         let ident = self.path_to_ident(path);
                         code.emit(Ir::Store(Marker::Ident(ident)));
                     },
-                    _ => panic!("assignment lhs is not a path"),
+                    _ => return Err(RuntimeError::new(
+                        RuntimeErrorK::InvalidAssignmentLhs,
+                        lhs.span,
+                    )),
                 }
             },
             ExprK::BinOp(op, lhs, rhs) => {
-                self.emit_r(lhs);
-                self.emit_r(rhs);
+                self.emit_r(lhs)?;
+                self.emit_r(rhs)?;
 
                 match op.kind {
                     BinOpK::Add => { code.emit(Ir::Add) },
@@ -107,37 +129,40 @@ impl Emit {
 
                 if let ExprK::Block(body) = &func.body.kind {
                     for expr in &body.list {
-                        self.emit_r(expr);
+                        self.emit_r(expr)?;
                     }
                 } else {
-                    panic!("fn body is not a code block")
+                    return Err(RuntimeError::new(
+                        RuntimeErrorK::FnBodyNotBlock,
+                        func.body.span,
+                    ));
                 }
 
                 self.code.emit(Ir::Return);
             },
 
             ExprK::If(pred, blk, else_blk) => {
-                self.emit_r(pred);
+                self.emit_r(pred)?;
 
                 let cond_location = self.code.len();
                 self.code.emit(Ir::JumpFalse(Marker::Temporary));
 
-                self.emit_r(blk);
+                self.emit_r(blk)?;
 
                 let mut cond_jump_offset = self.code.len() as isize - cond_location as isize;
 
                 if let Some(else_block) = else_blk {
                     let jump_else_location = self.code.len();
                     self.code.emit(Ir::Jump(Marker::Temporary));
-                    self.emit_r(else_block);
+                    self.emit_r(else_block)?;
 
                     let else_jump_offset = self.code.len() as isize - jump_else_location as isize;
-                    self.code.patch(Ir::Jump(Marker::Offset(else_jump_offset)), jump_else_location, Ir::Jump(Marker::Temporary));
+                    self.code.patch(Ir::Jump(Marker::Offset(else_jump_offset)), jump_else_location, Ir::Jump(Marker::Temporary), span)?;
 
                     cond_jump_offset += 1;
                 }
 
-                self.code.patch(Ir::JumpFalse(Marker::Offset(cond_jump_offset)), cond_location, Ir::JumpFalse(Marker::Temporary));
+                self.code.patch(Ir::JumpFalse(Marker::Offset(cond_jump_offset)), cond_location, Ir::JumpFalse(Marker::Temporary), span)?;
             },
             ExprK::Call(path, _args) => {
                 match &path.kind {
@@ -147,12 +172,15 @@ impl Emit {
                         self.code.emit(Ir::Call(sym));
                     },
                     _ => {
-                        panic!("call path is not a path");
+                        return Err(RuntimeError::new(
+                            RuntimeErrorK::CallTargetNotPath,
+                            path.span,
+                        ));
                     }
                 }
             },
             ExprK::UnaryOp(kind, operand) => {
-                self.emit_r(operand);
+                self.emit_r(operand)?;
                 match kind {
                     UnaryOpK::Neg => { code.emit(Ir::Neg) },
                     UnaryOpK::Not => { code.emit(Ir::Not) },
@@ -165,14 +193,14 @@ impl Emit {
                     },
                     LoopK::While(cond, body) => {
                         let loop_head = self.code.len();
-                        self.emit_r(cond);
+                        self.emit_r(cond)?;
 
                         let cond_location = self.code.len();
                         self.code.emit(Ir::JumpFalse(Marker::Temporary));
 
                         self.code.emit(Ir::ScopeEnter);
                         for expr in &body.list {
-                            self.emit_r(expr);
+                            self.emit_r(expr)?;
                         }
                         self.code.emit(Ir::ScopeExit);
 
@@ -184,7 +212,8 @@ impl Emit {
                             Ir::JumpFalse(Marker::Offset(exit_offset)),
                             cond_location,
                             Ir::JumpFalse(Marker::Temporary),
-                        );
+                            span,
+                        )?;
                     },
                     LoopK::Loop(_label, _body) => {
                         todo!()
@@ -192,5 +221,6 @@ impl Emit {
                 }
             },
         }
+        Ok(())
     }
 }
