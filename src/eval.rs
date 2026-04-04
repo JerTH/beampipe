@@ -85,10 +85,6 @@ impl Eval {
         state.eval_r(expr)
     }
 
-    fn resolve_path(&self, path: &Ptr<Path>) -> u64 {
-        path_key(path)
-    }
-
     fn eval_r(&self, expr: &Expr) -> Result<Value, RuntimeError> {
         let span = expr.span;
 
@@ -150,7 +146,7 @@ impl Eval {
                 let value = self.eval_r(rhs)?;
                 match &lhs.kind {
                     ExprK::Path(path) => {
-                        let key = self.resolve_path(path);
+                        let key = path_key(path);
                         match self.env.borrow_mut().assign(key) {
                             Some(slot) => *slot = value,
                             None => return Err(RuntimeError::new(
@@ -188,7 +184,7 @@ impl Eval {
                 todo!()
             },
             ExprK::Path(path) => {
-                let key = self.resolve_path(path);
+                let key = path_key(path);
                 match self.env.borrow().lookup(key) {
                     Some(value) => Ok(value.clone()),
                     None => Err(RuntimeError::new(
